@@ -46,25 +46,14 @@ export default function Dashboard() {
   const [selectedProduct, setSelectedProduct] = useState('all');
   const [selectedPayment, setSelectedPayment] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
+  const [selectedResponsible, setSelectedResponsible] = useState('all');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
   const [selectedOrderId, setSelectedOrderId] = useState(null);
-  const [infoTitle, setInfoTitle] = useState('Dashboard Info');
-  const [infoText, setInfoText] = useState('Use filters and click cards/rows to inspect details.');
+  const [activeInsight, setActiveInsight] = useState('total_orders');
   const inr = (amount) => `₹${Number(amount || 0).toFixed(2)}`;
 
-  useEffect(() => {
-    fetchData();
-    const id = setInterval(fetchData, 5000);
-    return () => clearInterval(id);
-  }, []);
-
-  const showInfo = (title, text) => {
-    setInfoTitle(title);
-    setInfoText(text);
-  };
-
-  const fetchData = async () => {
+  async function fetchData() {
     try {
       const [ordersRes, productsRes] = await Promise.all([
         fetch(`${API_BASE_URL}/orders`),
@@ -74,10 +63,19 @@ export default function Dashboard() {
       const productsData = await productsRes.json();
       setOrders(ordersData?.data || []);
       setProducts(Array.isArray(productsData) ? productsData : []);
-    } catch {
-      showInfo('Reload Failed', 'Unable to fetch backend data.');
+    } catch (error) {
+      console.error('Dashboard fetchData failed:', error);
     }
-  };
+  }
+
+  useEffect(() => {
+    const initId = setTimeout(fetchData, 0);
+    const id = setInterval(fetchData, 5000);
+    return () => {
+      clearTimeout(initId);
+      clearInterval(id);
+    };
+  }, []);
 
   const productNameById = useMemo(() => {
     const map = {};
@@ -101,6 +99,23 @@ export default function Dashboard() {
     return ['all', ...Array.from(ids)];
   }, [orders]);
 
+  const responsibleOf = (order = {}) => {
+    return String(
+      order.responsible_name ||
+      order.username ||
+      order.user_name ||
+      order.responsible ||
+      order.user_id ||
+      'unassigned'
+    );
+  };
+
+  const responsibleOptions = useMemo(() => {
+    const set = new Set();
+    orders.forEach((entry) => set.add(responsibleOf(entry.order || {})));
+    return ['all', ...Array.from(set)];
+  }, [orders]);
+
   const filteredOrders = useMemo(() => {
     return orders.filter((entry) => {
       const order = entry.order || {};
@@ -112,10 +127,11 @@ export default function Dashboard() {
       if (selectedSession !== 'all' && String(order.session_id || '') !== selectedSession) return false;
       if (selectedPayment !== 'all' && payment !== selectedPayment) return false;
       if (selectedStatus !== 'all' && status !== selectedStatus) return false;
+      if (selectedResponsible !== 'all' && responsibleOf(order) !== selectedResponsible) return false;
       if (selectedProduct !== 'all' && !(entry.items || []).some((i) => String(i.product_id) === selectedProduct)) return false;
       return true;
     });
-  }, [orders, activePeriod, customFrom, customTo, selectedSession, selectedPayment, selectedStatus, selectedProduct]);
+  }, [orders, activePeriod, customFrom, customTo, selectedSession, selectedPayment, selectedStatus, selectedResponsible, selectedProduct]);
 
   const summary = useMemo(() => {
     const total_orders = filteredOrders.length;
@@ -189,6 +205,99 @@ export default function Dashboard() {
     return filteredOrders.find((x) => Number(x.order?.id) === Number(selectedOrderId)) || null;
   }, [filteredOrders, selectedOrderId]);
 
+  const orderRows = useMemo(() => {
+    return filteredOrders
+      .map((x) => x.order || {})
+      .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+  }, [filteredOrders]);
+
+  const revenueRows = useMemo(() => {
+    const agg = {};
+    filteredOrders.forEach((entry) => {
+      (entry.items || []).forEach((item) => {
+        const id = String(item.product_id);
+        if (!agg[id]) {
+          agg[id] = {
+            id,
+            name: productNameById[id] || `Product ${id}`,
+            qty: 0,
+            revenue: 0,
+          };
+        }
+        agg[id].qty += Number(item.quantity || 0);
+        agg[id].revenue += Number(item.quantity || 0) * Number(item.price || 0);
+      });
+    });
+    return Object.values(agg).sort((a, b) => b.revenue - a.revenue);
+  }, [filteredOrders, productNameById]);
+
+  const avgRows = useMemo(() => {
+    const avg = summary.avg_order;
+    return orderRows.map((o) => {
+      const diff = Number(o.total || 0) - avg;
+      return {
+        id: o.id,
+        total: Number(o.total || 0),
+        itemsCount: filteredOrders.find((x) => Number(x.order?.id) === Number(o.id))?.items?.length || 0,
+        diff,
+        payment: String(o.payment_method || 'cash').toUpperCase(),
+        status: o.status,
+      };
+    });
+  }, [orderRows, summary.avg_order, filteredOrders]);
+
+  const paidRows = useMemo(() => {
+    return filteredOrders
+      .filter((x) => String(x.order?.status || '').toLowerCase() === 'paid')
+      .map((x) => ({
+        id: x.order.id,
+        table: x.order.table_id || '-',
+        payment: String(x.order.payment_method || 'cash').toUpperCase(),
+        total: Number(x.order.total || 0),
+        itemsCount: (x.items || []).length,
+        at: x.order.created_at,
+      }))
+      .sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
+  }, [filteredOrders]);
+
+  const trendSeries = useMemo(() => {
+    const dayMap = new Map();
+    filteredOrders.forEach((entry) => {
+      const d = entry.order?.created_at ? new Date(entry.order.created_at) : null;
+      if (!d) return;
+      const key = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+      dayMap.set(key, (dayMap.get(key) || 0) + Number(entry.order?.total || 0));
+    });
+    const keys = Array.from(dayMap.keys()).sort((a, b) => new Date(a) - new Date(b)).slice(-8);
+    if (!keys.length) return Array.from({ length: 8 }).map((_, idx) => ({ label: String(idx + 1), value: 0 }));
+    return keys.map((k) => {
+      const [, m, d] = k.split('-');
+      return { label: `${d}/${m}`, value: dayMap.get(k) || 0 };
+    });
+  }, [filteredOrders]);
+
+  const exportXls = () => {
+    const rows = filteredOrders.map((x) => {
+      const o = x.order || {};
+      return [
+        o.id || '',
+        o.session_id || '',
+        o.status || '',
+        o.payment_method || '',
+        Number(o.total || 0).toFixed(2),
+        o.created_at ? new Date(o.created_at).toISOString() : '',
+      ].join(',');
+    });
+    const csv = ['Order ID,Session,Status,Payment,Total,Created At', ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'pos-report.xls';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="min-h-screen bg-[#0F172A] text-slate-100 p-3">
       <div className="mx-auto max-w-[1500px]">
@@ -201,7 +310,8 @@ export default function Dashboard() {
           </div>
           <div className="flex items-center gap-2">
             <span className="text-sm text-slate-700">Welcome, {user?.username || user?.name || 'User'}</span>
-            
+            <button className="btn btn-sm btn-outline" onClick={exportXls}>Export XLS</button>
+            <button className="btn btn-sm btn-outline" onClick={() => window.print()}>Export PDF</button>
             <button
               className="btn btn-sm btn-error"
               onClick={() => {
@@ -216,14 +326,11 @@ export default function Dashboard() {
         </div>
 
         <div className="odoo-panel p-3 mb-3">
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-2">
             <select
               className="odoo-input h-10 rounded px-2"
               value={activePeriod}
-              onChange={(e) => {
-                setActivePeriod(e.target.value);
-                showInfo('Filter: Period', `Applied period filter: ${e.target.value}`);
-              }}
+              onChange={(e) => setActivePeriod(e.target.value)}
               title="Filter by date duration"
             >
               {periodOptions.map((p) => <option key={p} value={p}>{p}</option>)}
@@ -232,10 +339,7 @@ export default function Dashboard() {
             <select
               className="odoo-input h-10 rounded px-2"
               value={selectedSession}
-              onChange={(e) => {
-                setSelectedSession(e.target.value);
-                showInfo('Filter: Session', `Session filter: ${e.target.value}`);
-              }}
+              onChange={(e) => setSelectedSession(e.target.value)}
               title="Filter by session id"
             >
               {sessions.map((s) => <option key={s} value={s}>{s === 'all' ? 'All Sessions' : `Session ${s}`}</option>)}
@@ -244,11 +348,7 @@ export default function Dashboard() {
             <select
               className="odoo-input h-10 rounded px-2"
               value={selectedProduct}
-              onChange={(e) => {
-                setSelectedProduct(e.target.value);
-                const label = e.target.value === 'all' ? 'All Products' : productNameById[e.target.value] || `Product ${e.target.value}`;
-                showInfo('Filter: Product', `Product filter: ${label}`);
-              }}
+              onChange={(e) => setSelectedProduct(e.target.value)}
               title="Filter by product"
             >
               {productOptions.map((p) => <option key={p} value={p}>{p === 'all' ? 'All Products' : productNameById[p] || `Product ${p}`}</option>)}
@@ -257,10 +357,7 @@ export default function Dashboard() {
             <select
               className="odoo-input h-10 rounded px-2"
               value={selectedPayment}
-              onChange={(e) => {
-                setSelectedPayment(e.target.value);
-                showInfo('Filter: Payment', `Payment method: ${e.target.value}`);
-              }}
+              onChange={(e) => setSelectedPayment(e.target.value)}
               title="Filter by payment method"
             >
               {['all', 'cash', 'card', 'upi'].map((x) => <option key={x} value={x}>{x === 'all' ? 'All Payment Methods' : x.toUpperCase()}</option>)}
@@ -269,13 +366,19 @@ export default function Dashboard() {
             <select
               className="odoo-input h-10 rounded px-2"
               value={selectedStatus}
-              onChange={(e) => {
-                setSelectedStatus(e.target.value);
-                showInfo('Filter: Status', `Order status: ${e.target.value}`);
-              }}
+              onChange={(e) => setSelectedStatus(e.target.value)}
               title="Filter by order status"
             >
               {['all', 'pending', 'preparing', 'completed', 'paid'].map((x) => <option key={x} value={x}>{x === 'all' ? 'All Status' : x}</option>)}
+            </select>
+
+            <select
+              className="odoo-input h-10 rounded px-2"
+              value={selectedResponsible}
+              onChange={(e) => setSelectedResponsible(e.target.value)}
+              title="Filter by responsible user"
+            >
+              {responsibleOptions.map((r) => <option key={r} value={r}>{r === 'all' ? 'All Responsible' : r}</option>)}
             </select>
           </div>
 
@@ -288,19 +391,19 @@ export default function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-3">
-          <button className="odoo-panel p-4 text-left" onClick={() => showInfo('Total Orders', `Filtered orders count: ${summary.total_orders}`)} title="Click for details">
+          <button className="odoo-panel p-4 text-left" onClick={() => setActiveInsight('total_orders')} title="Click for details">
             <div className="text-slate-600 text-sm flex items-center gap-1"><ShoppingCart size={14} /> Total Orders</div>
             <div className="text-4xl font-semibold mt-1">{summary.total_orders}</div>
           </button>
-          <button className="odoo-panel p-4 text-left" onClick={() => showInfo('Revenue', `Filtered revenue: ${inr(summary.total_revenue)}`)} title="Click for details">
+          <button className="odoo-panel p-4 text-left" onClick={() => setActiveInsight('revenue')} title="Click for details">
             <div className="text-slate-600 text-sm flex items-center gap-1"><DollarSign size={14} /> Revenue</div>
             <div className="text-4xl font-semibold mt-1">{inr(summary.total_revenue)}</div>
           </button>
-          <button className="odoo-panel p-4 text-left" onClick={() => showInfo('Average Order', `Average order value: ${inr(summary.avg_order)}`)} title="Click for details">
+          <button className="odoo-panel p-4 text-left" onClick={() => setActiveInsight('avg_order')} title="Click for details">
             <div className="text-slate-600 text-sm flex items-center gap-1"><TrendingUp size={14} /> Avg Order</div>
             <div className="text-4xl font-semibold mt-1">{inr(summary.avg_order)}</div>
           </button>
-          <button className="odoo-panel p-4 text-left" onClick={() => showInfo('Paid Orders', `Paid orders in filter: ${summary.paid_orders}`)} title="Click for details">
+          <button className="odoo-panel p-4 text-left" onClick={() => setActiveInsight('paid_orders')} title="Click for details">
             <div className="text-slate-600 text-sm flex items-center gap-1"><PieChart size={14} /> Paid Orders</div>
             <div className="text-4xl font-semibold mt-1">{summary.paid_orders}</div>
           </button>
@@ -309,17 +412,42 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 mb-3">
           <div className="odoo-panel p-4">
             <h2 className="hand text-4xl mb-2">Sales Trend</h2>
-            <div className="grid grid-cols-8 gap-2 h-40 items-end">
-              {Array.from({ length: 8 }).map((_, i) => {
-                const value = topOrders[i] ? Number(topOrders[i].order.total || 0) : [1200, 1800, 1500, 2600, 1400, 2100, 2000, 2300][i];
-                const h = Math.max(10, Math.min(100, (value / Math.max(summary.total_revenue || 1, 1)) * 100));
-                return (
-                  <div key={i} className="flex flex-col items-center gap-1">
-                    <div className="w-full bg-[#6bb7ff] rounded-t" style={{ height: `${h}%` }} />
-                    <span className="text-[10px] text-slate-600">{i + 1}</span>
-                  </div>
-                );
-              })}
+            <div className="relative h-44 p-2">
+              <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id="salesArea" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#60a5fa" stopOpacity="0.45" />
+                    <stop offset="100%" stopColor="#60a5fa" stopOpacity="0.02" />
+                  </linearGradient>
+                </defs>
+                <path
+                  d={`M0,100 ${trendSeries
+                    .map((point, i) => {
+                      const x = (i / Math.max(trendSeries.length - 1, 1)) * 100;
+                      const y = 100 - Math.max(8, Math.min(95, (point.value / Math.max(summary.total_revenue || 1, 1)) * 100));
+                      return `L${x},${y}`;
+                    })
+                    .join(' ')} L100,100 Z`}
+                  fill="url(#salesArea)"
+                />
+                <polyline
+                  fill="none"
+                  stroke="#f59e0b"
+                  strokeWidth="1.8"
+                  points={trendSeries
+                    .map((point, i) => {
+                      const x = (i / Math.max(trendSeries.length - 1, 1)) * 100;
+                      const y = 100 - Math.max(8, Math.min(95, (point.value / Math.max(summary.total_revenue || 1, 1)) * 100));
+                      return `${x},${y}`;
+                    })
+                    .join(' ')}
+                />
+              </svg>
+              <div className="absolute inset-x-2 bottom-1 grid grid-cols-8 text-[10px] text-slate-500">
+                {trendSeries.map((point, i) => (
+                  <span key={i} className="text-center">{point.label}</span>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -357,7 +485,10 @@ export default function Dashboard() {
               <button
                 key={method}
                 className="w-full text-left mb-2"
-                onClick={() => showInfo('Payment Method', `${method.toUpperCase()} amount: ${inr(amount)}`)}
+                onClick={() => {
+                  setSelectedPayment(method);
+                  setActiveInsight('paid_orders');
+                }}
                 title={`View ${method.toUpperCase()} details`}
               >
                 <div className="flex items-center justify-between text-sm mb-1">
@@ -388,7 +519,7 @@ export default function Dashboard() {
                       className="cursor-pointer hover:bg-[#1b2230]"
                       onClick={() => {
                         setSelectedOrderId(x.order.id);
-                        showInfo('Order Details', `Selected order #${x.order.id} with ${x.items?.length || 0} items`);
+                        setActiveInsight('total_orders');
                       }}
                     >
                       <td>#{x.order.id}</td>
@@ -422,7 +553,7 @@ export default function Dashboard() {
                 </thead>
                 <tbody>
                   {topProducts.map((p) => (
-                    <tr key={p.id} onClick={() => showInfo('Product Detail', `${p.name}: qty ${p.qty}, revenue ${inr(p.revenue)}`)} className="cursor-pointer hover:bg-[#1b2230]">
+                    <tr key={p.id} onClick={() => setActiveInsight('revenue')} className="cursor-pointer hover:bg-[#1b2230]">
                       <td>{p.name}</td>
                       <td>{p.qty}</td>
                       <td>{inr(p.revenue)}</td>
@@ -446,7 +577,7 @@ export default function Dashboard() {
                 </thead>
                 <tbody>
                   {topCategories.map((c) => (
-                    <tr key={c.category} onClick={() => showInfo('Category Detail', `${c.category}: revenue ${inr(c.revenue)}`)} className="cursor-pointer hover:bg-[#1b2230]">
+                    <tr key={c.category} onClick={() => setActiveInsight('revenue')} className="cursor-pointer hover:bg-[#1b2230]">
                       <td>{c.category}</td>
                       <td>{inr(c.revenue)}</td>
                     </tr>
@@ -489,8 +620,130 @@ export default function Dashboard() {
         )}
 
         <div className="odoo-panel p-4">
-          <h3 className="hand text-3xl mb-2">{infoTitle}</h3>
-          <p className="text-slate-300">{infoText}</p>
+          <h3 className="hand text-3xl mb-2">
+            {activeInsight === 'revenue' && 'Revenue Breakdown'}
+            {activeInsight === 'avg_order' && 'Average Order Breakdown'}
+            {activeInsight === 'paid_orders' && 'Paid Orders List'}
+            {activeInsight === 'total_orders' && 'Total Orders List'}
+          </h3>
+
+          {activeInsight === 'revenue' && (
+            <div className="overflow-x-auto max-h-[360px] scroll-thin">
+              <table className="table table-sm">
+                <thead>
+                  <tr className="text-slate-300">
+                    <th>Item</th>
+                    <th>Qty</th>
+                    <th>Revenue</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {revenueRows.map((row) => (
+                    <tr key={row.id}>
+                      <td>{row.name}</td>
+                      <td>{row.qty}</td>
+                      <td>{inr(row.revenue)}</td>
+                    </tr>
+                  ))}
+                  {!revenueRows.length && <tr><td colSpan="3" className="text-center text-slate-500">No revenue data</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {activeInsight === 'avg_order' && (
+            <div className="overflow-x-auto max-h-[360px] scroll-thin">
+              <table className="table table-sm">
+                <thead>
+                  <tr className="text-slate-300">
+                    <th>Order</th>
+                    <th>Items</th>
+                    <th>Total</th>
+                    <th>vs Avg</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {avgRows.map((row) => (
+                    <tr key={row.id}>
+                      <td>#{row.id}</td>
+                      <td>{row.itemsCount}</td>
+                      <td>{inr(row.total)}</td>
+                      <td className={row.diff >= 0 ? 'text-green-300' : 'text-red-300'}>
+                        {row.diff >= 0 ? '+' : '-'}{inr(Math.abs(row.diff))}
+                      </td>
+                      <td>{row.status}</td>
+                    </tr>
+                  ))}
+                  {!avgRows.length && <tr><td colSpan="5" className="text-center text-slate-500">No average order data</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {activeInsight === 'paid_orders' && (
+            <div className="overflow-x-auto max-h-[360px] scroll-thin">
+              <table className="table table-sm">
+                <thead>
+                  <tr className="text-slate-300">
+                    <th>Order</th>
+                    <th>Table</th>
+                    <th>Method</th>
+                    <th>Items</th>
+                    <th>Total</th>
+                    <th>Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paidRows.map((row) => (
+                    <tr key={row.id}>
+                      <td>#{row.id}</td>
+                      <td>{row.table}</td>
+                      <td>{row.payment}</td>
+                      <td>{row.itemsCount}</td>
+                      <td>{inr(row.total)}</td>
+                      <td>{row.at ? new Date(row.at).toLocaleString() : '-'}</td>
+                    </tr>
+                  ))}
+                  {!paidRows.length && <tr><td colSpan="6" className="text-center text-slate-500">No paid orders in current filter</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {activeInsight === 'total_orders' && (
+            <div className="overflow-x-auto max-h-[360px] scroll-thin">
+              <table className="table table-sm">
+                <thead>
+                  <tr className="text-slate-300">
+                    <th>Order</th>
+                    <th>Session</th>
+                    <th>Status</th>
+                    <th>Method</th>
+                    <th>Total</th>
+                    <th>Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {orderRows.map((row) => (
+                    <tr
+                      key={row.id}
+                      className="cursor-pointer hover:bg-[#1b2230]"
+                      onClick={() => setSelectedOrderId(row.id)}
+                    >
+                      <td>#{row.id}</td>
+                      <td>{row.session_id || 'Session Open'}</td>
+                      <td>{row.status}</td>
+                      <td>{String(row.payment_method || 'cash').toUpperCase()}</td>
+                      <td>{inr(row.total)}</td>
+                      <td>{row.created_at ? new Date(row.created_at).toLocaleString() : '-'}</td>
+                    </tr>
+                  ))}
+                  {!orderRows.length && <tr><td colSpan="6" className="text-center text-slate-500">No orders in current filter</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
     </div>

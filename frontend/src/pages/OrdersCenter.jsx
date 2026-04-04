@@ -11,13 +11,7 @@ export default function OrdersCenter() {
   const [products, setProducts] = useState([]);
   const [selectedOrder, setSelectedOrder] = useState(null);
 
-  useEffect(() => {
-    fetchAll();
-    const id = setInterval(fetchAll, 6000);
-    return () => clearInterval(id);
-  }, []);
-
-  const fetchAll = async () => {
+  async function fetchAll() {
     try {
       const [ordersRes, productsRes] = await Promise.all([
         fetch(`${API_BASE_URL}/orders`),
@@ -29,8 +23,19 @@ export default function OrdersCenter() {
       setOrders(safeOrders);
       setProducts(Array.isArray(productsData) ? productsData : []);
       if (!selectedOrder && safeOrders[0]) setSelectedOrder(safeOrders[0]);
-    } catch {}
-  };
+    } catch (error) {
+      console.error('OrdersCenter fetchAll failed:', error);
+    }
+  }
+
+  useEffect(() => {
+    const initId = setTimeout(fetchAll, 0);
+    const id = setInterval(fetchAll, 6000);
+    return () => {
+      clearTimeout(initId);
+      clearInterval(id);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const productMap = useMemo(() => {
     const m = {};
@@ -111,4 +116,3 @@ export default function OrdersCenter() {
     </div>
   );
 }
-

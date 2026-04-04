@@ -27,7 +27,9 @@ export default function Signup() {
       let data = {};
       try {
         data = await response.json();
-      } catch {}
+      } catch {
+        data = {};
+      }
 
       if (response.ok && data.success) {
         navigate('/login');

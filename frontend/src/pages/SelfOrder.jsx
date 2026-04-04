@@ -17,18 +17,26 @@ export default function SelfOrder() {
   const [cart, setCart] = useState([]);
   const [token, setToken] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
 
   useEffect(() => {
-    fetchProducts();
-  }, []);
+    if (user?.role !== 'customer') navigate('/login');
+  }, [navigate, user?.role]);
 
-  const fetchProducts = async () => {
+  async function fetchProducts() {
     try {
       const res = await fetch(`${API_BASE_URL}/products`);
       const data = await res.json();
       setProducts(Array.isArray(data) ? data : []);
-    } catch {}
-  };
+    } catch (error) {
+      console.error('SelfOrder fetchProducts failed:', error);
+    }
+  }
+
+  useEffect(() => {
+    const initId = setTimeout(fetchProducts, 0);
+    return () => clearTimeout(initId);
+  }, []);
 
   const filteredProducts = useMemo(() => {
     return products.filter((p) => activeCategory === 'All' || toCategory(p.name) === activeCategory);
@@ -63,6 +71,10 @@ export default function SelfOrder() {
           })),
         }),
       });
+      if (res.status === 404) {
+        alert('Self-order module is not enabled on backend yet.');
+        return;
+      }
       const data = await res.json();
       if (data.success) {
         alert(`Order Confirmed #${data.data?.order?.id || ''}`);
@@ -79,7 +91,15 @@ export default function SelfOrder() {
     <div className="min-h-screen bg-[#0F172A] text-slate-100 flex items-center justify-center p-4">
       <div className="w-full max-w-[430px] h-[880px] odoo-panel overflow-hidden flex flex-col">
         <div className="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
-          <button className="btn btn-xs btn-outline" onClick={() => navigate('/login')}>Back</button>
+          <button
+            className="btn btn-xs btn-outline"
+            onClick={() => {
+              localStorage.removeItem('user');
+              navigate('/login');
+            }}
+          >
+            Logout
+          </button>
           <h1 className="hand text-3xl">Order Here</h1>
           <div />
         </div>

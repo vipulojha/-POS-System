@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Trash2, RefreshCw, Settings, Copy, Search } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, RefreshCw, Settings, Copy, Search, Pencil, ClipboardList, UtensilsCrossed, CalendarClock } from 'lucide-react';
 import { API_BASE_URL } from '../config';
 
-const topMenus = ['Orders', 'Products', 'Reporting'];
+const topMenus = ['Operations', 'Catalog'];
 const sideMenus = {
-  Orders: ['Orders', 'Payment', 'Customer'],
-  Products: ['Products', 'Category', 'Floor Plan'],
-  Reporting: ['Dashboard'],
+  Operations: ['Orders', 'Kitchen', 'Reservations', 'Customers'],
+  Catalog: ['Inventory', 'Category', 'Floor Plan'],
 };
 
 const defaultCategories = [
@@ -33,11 +32,52 @@ function paymentLabel(raw) {
 }
 
 const inr = (amount) => `\u20B9${Number(amount || 0).toFixed(2)}`;
+const getCurrentTimeValue = () => {
+  const now = new Date();
+  return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+};
+
+const seedNamePool = ['Aarav', 'Vivaan', 'Aditya', 'Vihaan', 'Arjun', 'Sai', 'Reyansh', 'Krishna', 'Ishaan', 'Kabir', 'Ananya', 'Diya', 'Ira', 'Aanya', 'Myra', 'Sara', 'Riya', 'Meera', 'Siya', 'Aditi'];
+const seedCityPool = ['Ahmedabad', 'Surat', 'Vadodara', 'Rajkot', 'Mumbai', 'Pune', 'Delhi', 'Bengaluru', 'Hyderabad', 'Jaipur'];
+
+function buildDemoCustomers(count, orders) {
+  const sortedOrders = [...orders].sort((a, b) => new Date(b.order?.created_at || 0) - new Date(a.order?.created_at || 0));
+  const customers = [];
+  for (let i = 1; i <= count; i++) {
+    const first = seedNamePool[i % seedNamePool.length];
+    const last = `User${String(i).padStart(3, '0')}`;
+    const id = 10000 + i;
+    const email = `testuser${String(i).padStart(3, '0')}@example.com`;
+    const city = seedCityPool[i % seedCityPool.length];
+    const orderSliceStart = (i * 2) % Math.max(sortedOrders.length || 1, 1);
+    const orderHistory = sortedOrders.slice(orderSliceStart, orderSliceStart + 3).map((x) => ({
+      orderId: x.order?.id,
+      total: Number(x.order?.total || 0),
+      status: x.order?.status || 'pending',
+      date: x.order?.created_at ? new Date(x.order.created_at).toLocaleString() : '-',
+      itemCount: (x.items || []).length,
+    }));
+    const totalSales = orderHistory.reduce((sum, o) => sum + o.total, 0);
+    customers.push({
+      id,
+      name: `${first} ${last}`,
+      email,
+      phone: `+91 98${String(10000000 + i).slice(0, 8)}`,
+      city,
+      state: 'Gujarat',
+      country: 'India',
+      totalSales,
+      orderHistory,
+    });
+  }
+  return customers;
+}
 
 export default function Admin() {
   const navigate = useNavigate();
-  const [activeTopMenu, setActiveTopMenu] = useState('Orders');
+  const [activeTopMenu, setActiveTopMenu] = useState('Operations');
   const [activeSideMenu, setActiveSideMenu] = useState('Orders');
+  const [overviewDetail, setOverviewDetail] = useState('orders');
   const [products, setProducts] = useState([]);
   const [tables, setTables] = useState([]);
   const [orders, setOrders] = useState([]);
@@ -46,6 +86,7 @@ export default function Admin() {
   const [newProductPrice, setNewProductPrice] = useState('');
   const [newTableName, setNewTableName] = useState('');
   const [newTableSeats, setNewTableSeats] = useState('4');
+  const [editingProductId, setEditingProductId] = useState(null);
   const [productTab, setProductTab] = useState('General Info');
   const [productCategory, setProductCategory] = useState('Quick Bites');
   const [productTax, setProductTax] = useState('5');
@@ -71,6 +112,16 @@ export default function Admin() {
           { id: 2, name: 'Smith', email: 'smith@odoo.com', phone: '+91 9797979797', city: 'Ahmedabad', state: 'Gujarat', country: 'India', totalSales: 1200 },
         ];
   });
+  const [selectedCustomerId, setSelectedCustomerId] = useState(() => {
+    try {
+      const raw = localStorage.getItem('admin_customers');
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return parsed?.[0]?.id || null;
+    } catch {
+      return null;
+    }
+  });
   const [customerForm, setCustomerForm] = useState({
     name: '',
     email: '',
@@ -80,14 +131,17 @@ export default function Admin() {
     country: 'India',
   });
   const [floorName, setFloorName] = useState('Ground Floor');
-  const [selectedSession, setSelectedSession] = useState('all');
   const [selectedTables, setSelectedTables] = useState([]);
   const [hiddenTableIds, setHiddenTableIds] = useState([]);
-
-  useEffect(() => {
-    const firstSide = sideMenus[activeTopMenu][0];
-    setActiveSideMenu(firstSide);
-  }, [activeTopMenu]);
+  const [reservations, setReservations] = useState(() => {
+    const raw = localStorage.getItem('admin_reservations');
+    return raw ? JSON.parse(raw) : [];
+  });
+  const [reservationForm, setReservationForm] = useState({
+    tableId: '',
+    guest: '',
+    time: getCurrentTimeValue(),
+  });
 
   useEffect(() => {
     localStorage.setItem('admin_categories', JSON.stringify(categories));
@@ -98,10 +152,10 @@ export default function Admin() {
   }, [customers]);
 
   useEffect(() => {
-    fetchAll();
-  }, []);
+    localStorage.setItem('admin_reservations', JSON.stringify(reservations));
+  }, [reservations]);
 
-  const fetchAll = async () => {
+  async function fetchAll() {
     try {
       const [productsRes, tablesRes, ordersRes, summaryRes] = await Promise.all([
         fetch(`${API_BASE_URL}/products`),
@@ -117,48 +171,78 @@ export default function Admin() {
 
       setProducts(Array.isArray(productsData) ? productsData : []);
       setTables(Array.isArray(tablesData) ? tablesData : []);
-      setOrders(ordersData?.data || []);
+      const safeOrders = ordersData?.data || [];
+      setOrders(safeOrders);
       setSummary({
         total_orders: Number(summaryData?.total_orders || 0),
         total_revenue: Number(summaryData?.total_revenue || 0),
       });
-    } catch {}
+
+      const seededFlag = localStorage.getItem('admin_customers_seeded_v1');
+      if (seededFlag !== 'yes' && safeOrders.length) {
+        if (customers.length < 250) {
+          const seeded = buildDemoCustomers(250, safeOrders);
+          setCustomers(seeded);
+          setSelectedCustomerId(seeded[0]?.id || null);
+        }
+        localStorage.setItem('admin_customers_seeded_v1', 'yes');
+      }
+    } catch (error) {
+      console.error('Admin fetchAll failed:', error);
+    }
+  }
+
+  useEffect(() => {
+    const initId = setTimeout(fetchAll, 0);
+    return () => clearTimeout(initId);
+  }, []);
+
+  const resetProductForm = () => {
+    setEditingProductId(null);
+    setNewProductName('');
+    setNewProductPrice('');
+    setProductCategory('Quick Bites');
+    setProductTax('5');
+    setProductUom('Unit');
+    setProductDesc('');
   };
-
-  const paymentGroups = useMemo(() => {
-    const grouped = {};
-    orders.forEach((entry) => {
-      const key = paymentLabel(entry.order?.payment_method);
-      grouped[key] = (grouped[key] || 0) + Number(entry.order?.total || 0);
-    });
-    return grouped;
-  }, [orders]);
-
-  const paymentRows = useMemo(() => {
-    return orders
-      .filter((x) => x.order?.status === 'paid')
-      .map((x) => ({
-        id: x.order.id,
-        method: paymentLabel(x.order.payment_method),
-        date: x.order.created_at ? new Date(x.order.created_at).toLocaleDateString() : '-',
-        amount: Number(x.order.total || 0),
-      }));
-  }, [orders]);
 
   const createProduct = async (e) => {
     e.preventDefault();
     if (!newProductName || !newProductPrice) return;
     try {
-      await fetch(`${API_BASE_URL}/products`, {
-        method: 'POST',
+      const method = editingProductId ? 'PATCH' : 'POST';
+      const url = editingProductId ? `${API_BASE_URL}/products/${editingProductId}` : `${API_BASE_URL}/products`;
+      let res = await fetch(url, {
+        method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newProductName, price: Number(newProductPrice) }),
       });
-      setNewProductName('');
-      setNewProductPrice('');
-      setProductDesc('');
+      if (!res.ok && editingProductId) {
+        res = await fetch(url, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: newProductName, price: Number(newProductPrice) }),
+        });
+      }
+      if (!res.ok) return;
+      resetProductForm();
       fetchAll();
-    } catch {}
+    } catch (error) {
+      console.error('Create/update product failed:', error);
+    }
+  };
+
+  const editProduct = (product, idx) => {
+    setEditingProductId(product.id);
+    setNewProductName(product.name || '');
+    setNewProductPrice(String(product.price ?? ''));
+    setProductTax(['5', '12', '18'][idx % 3]);
+    setProductUom(['Unit', 'KG', 'Pack'][idx % 3]);
+    const cat = categories[idx % Math.max(categories.length, 1)] || { name: 'Quick Bites' };
+    setProductCategory(cat.name);
+    setProductDesc('');
+    setProductTab('General Info');
   };
 
   const deleteProduct = async (id) => {
@@ -166,7 +250,9 @@ export default function Admin() {
     try {
       await fetch(`${API_BASE_URL}/products/${id}`, { method: 'DELETE' });
       fetchAll();
-    } catch {}
+    } catch (error) {
+      console.error('Delete product failed:', error);
+    }
   };
 
   const createTable = async (e) => {
@@ -181,7 +267,9 @@ export default function Admin() {
       setNewTableName('');
       setNewTableSeats('4');
       fetchAll();
-    } catch {}
+    } catch (error) {
+      console.error('Create table failed:', error);
+    }
   };
 
   const addCategory = () => {
@@ -198,24 +286,24 @@ export default function Admin() {
   const addCustomer = (e) => {
     e.preventDefault();
     if (!customerForm.name || !customerForm.email) return;
+    const newId = Date.now();
     setCustomers((prev) => [
       ...prev,
-      { id: Date.now(), ...customerForm, totalSales: 0 },
+      { id: newId, ...customerForm, totalSales: 0, orderHistory: [] },
     ]);
+    if (!selectedCustomerId) setSelectedCustomerId(newId);
     setCustomerForm({ name: '', email: '', phone: '', city: '', state: '', country: 'India' });
+  };
+
+  const loadDemoCustomers = () => {
+    const seeded = buildDemoCustomers(250, orders);
+    setCustomers(seeded);
+    setSelectedCustomerId(seeded[0]?.id || null);
   };
 
   const visibleTables = useMemo(() => {
     return tables.filter((t) => !hiddenTableIds.includes(t.id));
   }, [tables, hiddenTableIds]);
-
-  const sessionOptions = useMemo(() => {
-    const s = new Set();
-    orders.forEach((x) => {
-      if (x.order?.session_id) s.add(String(x.order.session_id));
-    });
-    return ['all', ...Array.from(s)];
-  }, [orders]);
 
   const filteredCustomers = useMemo(() => {
     const q = customerSearch.toLowerCase();
@@ -224,6 +312,11 @@ export default function Admin() {
       return String(c.name).toLowerCase().includes(q) || String(c.email).toLowerCase().includes(q) || String(c.phone).toLowerCase().includes(q);
     });
   }, [customers, customerSearch]);
+
+  const selectedCustomer = useMemo(
+    () => filteredCustomers.find((c) => Number(c.id) === Number(selectedCustomerId)) || customers.find((c) => Number(c.id) === Number(selectedCustomerId)) || null,
+    [filteredCustomers, customers, selectedCustomerId]
+  );
 
   const toggleTableSelection = (id) => {
     setSelectedTables((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -244,66 +337,152 @@ export default function Admin() {
     setSelectedTables([]);
   };
 
-  const renderOrders = () => (
-    <div className="odoo-panel p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="hand text-4xl">Orders</h2>
-        <button className="btn btn-sm btn-ghost" onClick={fetchAll}><RefreshCw size={14} /></button>
-      </div>
-      <div className="odoo-card p-4">
-        <p className="text-slate-300 mb-3">
-          Orders now open in a dedicated workspace page with card view and full item-level details.
-        </p>
-        <button className="btn btn-primary" onClick={() => navigate('/orders-center')}>
-          Open Orders Workspace
-        </button>
-      </div>
-    </div>
-  );
+  const renderOrders = () => {
+    const pendingKitchenRows = orders.filter((o) => ['pending', 'paid'].includes(String(o.order?.status || '').toLowerCase()));
+    const pendingKitchen = pendingKitchenRows.length;
+    const activeReservations = reservations.length;
+    const ordersDetailRows = [...orders]
+      .sort((a, b) => new Date(b.order?.created_at || 0) - new Date(a.order?.created_at || 0))
+      .slice(0, 20);
+    const revenueByItem = (() => {
+      const agg = {};
+      orders.forEach((entry) => {
+        (entry.items || []).forEach((item) => {
+          const p = products.find((x) => Number(x.id) === Number(item.product_id));
+          const key = String(item.product_id);
+          if (!agg[key]) {
+            agg[key] = { id: key, name: p?.name || `Product ${item.product_id}`, qty: 0, revenue: 0 };
+          }
+          agg[key].qty += Number(item.quantity || 0);
+          agg[key].revenue += Number(item.quantity || 0) * Number(item.price || 0);
+        });
+      });
+      return Object.values(agg).sort((a, b) => b.revenue - a.revenue).slice(0, 20);
+    })();
 
-  const renderPayments = () => (
-    <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-      <div className="odoo-panel p-4">
-        <h2 className="hand text-4xl mb-3">Payment Summary</h2>
-        <div className="space-y-2">
-          {Object.entries(paymentGroups).map(([method, amount]) => (
-            <div className="odoo-card p-2 flex justify-between" key={method}>
-              <span>{method}</span>
-              <span>{inr(amount)}</span>
+    return (
+      <div className="space-y-3">
+        <div className="odoo-panel p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="hand text-4xl">Operations Overview</h2>
+            <button className="btn btn-sm btn-ghost" onClick={fetchAll}><RefreshCw size={14} /></button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2">
+            <button className="odoo-card p-3 text-left" onClick={() => setOverviewDetail('orders')}>
+              <div className="text-xs text-slate-400">Total Orders</div>
+              <div className="text-3xl font-semibold mt-1">{summary.total_orders}</div>
+            </button>
+            <button className="odoo-card p-3 text-left" onClick={() => setOverviewDetail('revenue')}>
+              <div className="text-xs text-slate-400">Revenue</div>
+              <div className="text-3xl font-semibold mt-1">{inr(summary.total_revenue)}</div>
+            </button>
+            <button className="odoo-card p-3 text-left" onClick={() => setOverviewDetail('kitchen')}>
+              <div className="text-xs text-slate-400">Awaiting Kitchen</div>
+              <div className="text-3xl font-semibold mt-1">{pendingKitchen}</div>
+            </button>
+            <button className="odoo-card p-3 text-left" onClick={() => setOverviewDetail('reservations')}>
+              <div className="text-xs text-slate-400">Active Reservations</div>
+              <div className="text-3xl font-semibold mt-1">{activeReservations}</div>
+            </button>
+          </div>
+        </div>
+
+        <div className="odoo-panel p-4">
+          <h3 className="hand text-3xl mb-3">Quick Actions</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <button className="btn btn-primary justify-start h-12" onClick={() => navigate('/orders-center')}>
+              <ClipboardList size={16} /> Orders Workspace
+            </button>
+            <button className="btn btn-outline justify-start h-12" onClick={() => { setActiveTopMenu('Operations'); setActiveSideMenu('Kitchen'); }}>
+              <UtensilsCrossed size={16} /> Kitchen Monitor
+            </button>
+          </div>
+          <div className="mt-3 text-sm text-slate-400 flex items-center gap-2">
+            <CalendarClock size={14} />
+            Start here for daily operations, then switch to Catalog from the left menu.
+          </div>
+        </div>
+
+        <div className="odoo-panel p-4">
+          <h3 className="hand text-3xl mb-3">
+            {overviewDetail === 'orders' && 'Order Details'}
+            {overviewDetail === 'revenue' && 'Revenue By Item'}
+            {overviewDetail === 'kitchen' && 'Awaiting Kitchen Details'}
+            {overviewDetail === 'reservations' && 'Reservation Details'}
+          </h3>
+
+          {overviewDetail === 'orders' && (
+            <div className="overflow-x-auto max-h-[320px] scroll-thin">
+              <table className="table table-sm">
+                <thead><tr className="text-slate-300"><th>Order</th><th>Table</th><th>Status</th><th>Total</th><th>Date</th></tr></thead>
+                <tbody>
+                  {ordersDetailRows.map((x) => (
+                    <tr key={x.order.id}>
+                      <td>#{x.order.id}</td>
+                      <td>{x.order.table_id || '-'}</td>
+                      <td>{x.order.status}</td>
+                      <td>{inr(x.order.total)}</td>
+                      <td>{x.order.created_at ? new Date(x.order.created_at).toLocaleString() : '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          ))}
-          {!Object.keys(paymentGroups).length && <p className="text-slate-500">No payment data</p>}
+          )}
+
+          {overviewDetail === 'revenue' && (
+            <div className="overflow-x-auto max-h-[320px] scroll-thin">
+              <table className="table table-sm">
+                <thead><tr className="text-slate-300"><th>Item</th><th>Qty</th><th>Revenue</th></tr></thead>
+                <tbody>
+                  {revenueByItem.map((row) => (
+                    <tr key={row.id}><td>{row.name}</td><td>{row.qty}</td><td>{inr(row.revenue)}</td></tr>
+                  ))}
+                  {!revenueByItem.length && <tr><td colSpan="3" className="text-center text-slate-500">No revenue data</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {overviewDetail === 'kitchen' && (
+            <div className="overflow-x-auto max-h-[320px] scroll-thin">
+              <table className="table table-sm">
+                <thead><tr className="text-slate-300"><th>Order</th><th>Table</th><th>Status</th><th>Items</th><th>Total</th></tr></thead>
+                <tbody>
+                  {pendingKitchenRows.map((x) => (
+                    <tr key={x.order.id}>
+                      <td>#{x.order.id}</td>
+                      <td>{x.order.table_id || '-'}</td>
+                      <td>{x.order.status}</td>
+                      <td>{(x.items || []).length}</td>
+                      <td>{inr(x.order.total)}</td>
+                    </tr>
+                  ))}
+                  {!pendingKitchenRows.length && <tr><td colSpan="5" className="text-center text-slate-500">No orders awaiting kitchen</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {overviewDetail === 'reservations' && (
+            <div className="overflow-x-auto max-h-[320px] scroll-thin">
+              <table className="table table-sm">
+                <thead><tr className="text-slate-300"><th>Table</th><th>Guest</th><th>Time</th><th>Status</th></tr></thead>
+                <tbody>
+                  {reservations.map((r) => (
+                    <tr key={r.id}><td>{r.tableName}</td><td>{r.guest}</td><td>{r.time}</td><td>{r.status}</td></tr>
+                  ))}
+                  {!reservations.length && <tr><td colSpan="4" className="text-center text-slate-500">No active reservations</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
+    );
+  };
 
-      <div className="odoo-panel p-4">
-        <h2 className="hand text-4xl mb-3">Payment Rows</h2>
-        <div className="overflow-x-auto max-h-[360px] scroll-thin">
-          <table className="table table-sm">
-            <thead>
-              <tr className="text-slate-300">
-                <th>Method</th>
-                <th>Date</th>
-                <th>Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {paymentRows.map((r) => (
-                <tr key={r.id}>
-                  <td>{r.method}</td>
-                  <td>{r.date}</td>
-                  <td>{inr(r.amount)}</td>
-                </tr>
-              ))}
-              {!paymentRows.length && <tr><td colSpan="3" className="text-center text-slate-500">No paid rows</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderCustomer = () => (
+  const renderCustomers = () => (
     <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
       <div className="odoo-panel p-4">
         <div className="flex items-center justify-between mb-3">
@@ -313,23 +492,26 @@ export default function Admin() {
             <input value={customerSearch} onChange={(e) => setCustomerSearch(e.target.value)} placeholder="Search customer..." />
           </label>
         </div>
+        <div className="mb-2 flex items-center justify-between">
+          <div className="text-xs text-slate-400">Customers: {filteredCustomers.length}</div>
+          <button className="btn btn-xs btn-outline" onClick={loadDemoCustomers}>Load 250 Test Users</button>
+        </div>
         <div className="overflow-x-auto max-h-[360px] scroll-thin">
           <table className="table table-sm">
             <thead>
               <tr className="text-slate-300">
                 <th>Name</th>
-                <th>Contact</th>
+                <th>Email</th>
+                <th>Orders</th>
                 <th>Total Sales</th>
               </tr>
             </thead>
             <tbody>
               {filteredCustomers.map((c) => (
-                <tr key={c.id}>
+                <tr key={c.id} className={`cursor-pointer ${Number(selectedCustomerId) === Number(c.id) ? 'bg-slate-800/50' : ''}`} onClick={() => setSelectedCustomerId(c.id)}>
                   <td>{c.name}</td>
-                  <td>
-                    <div>{c.email}</div>
-                    <div className="text-xs text-slate-400">{c.phone}</div>
-                  </td>
+                  <td>{c.email}</td>
+                  <td>{(c.orderHistory || []).length}</td>
                   <td>{inr(c.totalSales)}</td>
                 </tr>
               ))}
@@ -338,22 +520,83 @@ export default function Admin() {
         </div>
       </div>
 
-      <form className="odoo-panel p-4" onSubmit={addCustomer}>
-        <h2 className="hand text-4xl mb-3">New Customer</h2>
-        <div className="space-y-2">
+      <div className="odoo-panel p-4 space-y-3">
+        <div>
+          <h2 className="hand text-4xl mb-1">Customer Details</h2>
+          {!selectedCustomer && <div className="text-sm text-slate-500">Select a customer to view order history.</div>}
+          {selectedCustomer && (
+            <div className="text-sm text-slate-300">
+              <div>{selectedCustomer.name}</div>
+              <div className="text-slate-400">{selectedCustomer.email} | {selectedCustomer.phone}</div>
+            </div>
+          )}
+        </div>
+        <div className="odoo-card p-3 max-h-[210px] overflow-auto scroll-thin">
+          <div className="text-sm font-semibold mb-2">Order History</div>
+          {selectedCustomer?.orderHistory?.length ? selectedCustomer.orderHistory.map((o) => (
+            <div key={`${selectedCustomer.id}-${o.orderId}-${o.date}`} className="text-xs border-b border-slate-700 py-1">
+              <div className="flex justify-between">
+                <span>Order #{o.orderId}</span>
+                <span>{inr(o.total)}</span>
+              </div>
+              <div className="text-slate-400">{o.date} | {o.status} | items: {o.itemCount}</div>
+            </div>
+          )) : <div className="text-xs text-slate-500">No orders recorded.</div>}
+        </div>
+        <form className="space-y-2 border-t border-slate-700 pt-3" onSubmit={addCustomer}>
+          <div className="text-sm font-semibold">Add Single Customer</div>
           <input className="odoo-input w-full h-10 rounded px-3" placeholder="Name" value={customerForm.name} onChange={(e) => setCustomerForm({ ...customerForm, name: e.target.value })} />
           <input className="odoo-input w-full h-10 rounded px-3" placeholder="Email" value={customerForm.email} onChange={(e) => setCustomerForm({ ...customerForm, email: e.target.value })} />
           <input className="odoo-input w-full h-10 rounded px-3" placeholder="Phone" value={customerForm.phone} onChange={(e) => setCustomerForm({ ...customerForm, phone: e.target.value })} />
-          <input className="odoo-input w-full h-10 rounded px-3" placeholder="City" value={customerForm.city} onChange={(e) => setCustomerForm({ ...customerForm, city: e.target.value })} />
           <div className="grid grid-cols-2 gap-2">
+            <input className="odoo-input w-full h-10 rounded px-3" placeholder="City" value={customerForm.city} onChange={(e) => setCustomerForm({ ...customerForm, city: e.target.value })} />
             <input className="odoo-input w-full h-10 rounded px-3" placeholder="State" value={customerForm.state} onChange={(e) => setCustomerForm({ ...customerForm, state: e.target.value })} />
-            <input className="odoo-input w-full h-10 rounded px-3" placeholder="Country" value={customerForm.country} onChange={(e) => setCustomerForm({ ...customerForm, country: e.target.value })} />
           </div>
           <button className="btn btn-odoo border-none mt-2"><Plus size={14} /> Save Customer</button>
-        </div>
-      </form>
+        </form>
+      </div>
     </div>
   );
+
+  const renderKitchen = () => {
+    const statusGroups = ['pending', 'preparing', 'completed', 'paid'];
+    return (
+      <div className="odoo-panel p-4">
+        <h2 className="hand text-4xl mb-3">Kitchen & Order Monitor</h2>
+        <div className="flex gap-2 flex-wrap mb-3">
+          {statusGroups.map((s) => (
+            <span key={s} className="badge badge-neutral">
+              {s}: {orders.filter((o) => o.order?.status === s).length}
+            </span>
+          ))}
+        </div>
+        <div className="overflow-x-auto max-h-[420px] scroll-thin">
+          <table className="table table-sm">
+            <thead>
+              <tr className="text-slate-300">
+                <th>Order</th>
+                <th>Table</th>
+                <th>Status</th>
+                <th>Total</th>
+                <th>Payment</th>
+              </tr>
+            </thead>
+            <tbody>
+              {orders.slice(0, 40).map((x) => (
+                <tr key={x.order.id}>
+                  <td>#{x.order.id}</td>
+                  <td>{x.order.table_id || '-'}</td>
+                  <td>{x.order.status}</td>
+                  <td>{inr(x.order.total)}</td>
+                  <td>{paymentLabel(x.order.payment_method)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
 
   const renderProducts = () => (
     <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
@@ -431,7 +674,16 @@ export default function Admin() {
           </div>
         )}
 
-        <button className="btn btn-odoo border-none mt-3"><Plus size={14} /> Save Product</button>
+        <div className="mt-3 flex gap-2">
+          <button className="btn btn-odoo border-none">
+            <Plus size={14} /> {editingProductId ? 'Update Product' : 'Save Product'}
+          </button>
+          {editingProductId && (
+            <button type="button" className="btn btn-outline" onClick={resetProductForm}>
+              Cancel Edit
+            </button>
+          )}
+        </div>
       </form>
 
       <div className="odoo-panel p-4">
@@ -459,6 +711,7 @@ export default function Admin() {
                     <td>{['Unit', 'KG', 'Pack'][idx % 3]}</td>
                     <td><span className="badge" style={{ backgroundColor: cat.color }}>{cat.name}</span></td>
                     <td>
+                      <button className="btn btn-xs btn-outline mr-1" onClick={() => editProduct(p, idx)}><Pencil size={12} /></button>
                       <button className="btn btn-xs btn-outline btn-error" onClick={() => deleteProduct(p.id)}><Trash2 size={12} /></button>
                     </td>
                   </tr>
@@ -524,9 +777,7 @@ export default function Admin() {
         <h2 className="hand text-4xl mb-3">Floor Plan Setup</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
           <input className="odoo-input h-10 rounded px-3" value={floorName} onChange={(e) => setFloorName(e.target.value)} />
-          <select className="odoo-input h-10 rounded px-2" value={selectedSession} onChange={(e) => setSelectedSession(e.target.value)}>
-            {sessionOptions.map((s) => <option key={s} value={s}>{s === 'all' ? 'All Sessions' : `Session ${s}`}</option>)}
-          </select>
+          <div className="odoo-card h-10 rounded px-3 flex items-center text-sm text-slate-400">Floor layout is shared across all sessions</div>
           <form onSubmit={createTable} className="grid grid-cols-3 gap-2">
             <input className="odoo-input h-10 rounded px-3 col-span-2" placeholder="Table name (e.g. Table 6)" value={newTableName} onChange={(e) => setNewTableName(e.target.value)} />
             <button className="btn btn-secondary h-10">Add</button>
@@ -573,6 +824,80 @@ export default function Admin() {
     </div>
   );
 
+  const renderReservations = () => {
+    const reserve = (e) => {
+      e.preventDefault();
+      if (!reservationForm.tableId || !reservationForm.guest) return;
+      const tableId = Number(reservationForm.tableId);
+      const table = tables.find((t) => Number(t.id) === tableId);
+      if (!table) return;
+      setReservations((prev) => [
+        ...prev.filter((r) => Number(r.tableId) !== tableId),
+        {
+          id: Date.now(),
+          tableId,
+          tableName: formatTableName(table, tables.findIndex((x) => x.id === table.id)),
+          guest: reservationForm.guest,
+          time: reservationForm.time || getCurrentTimeValue(),
+          status: 'reserved',
+        },
+      ]);
+      setReservationForm({ tableId: '', guest: '', time: getCurrentTimeValue() });
+    };
+
+    const release = (tableId) => {
+      setReservations((prev) => prev.filter((r) => Number(r.tableId) !== Number(tableId)));
+    };
+
+    return (
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+        <form className="odoo-panel p-4" onSubmit={reserve}>
+          <h2 className="hand text-4xl mb-3">Reserve Table</h2>
+          <div className="space-y-2">
+            <select
+              className="odoo-input w-full h-10 rounded px-3"
+              value={reservationForm.tableId}
+              onChange={(e) => setReservationForm((p) => ({ ...p, tableId: e.target.value }))}
+            >
+              <option value="">Select table</option>
+              {tables.map((t, idx) => (
+                <option key={t.id} value={t.id}>{formatTableName(t, idx)}</option>
+              ))}
+            </select>
+            <input
+              className="odoo-input w-full h-10 rounded px-3"
+              placeholder="Guest name"
+              value={reservationForm.guest}
+              onChange={(e) => setReservationForm((p) => ({ ...p, guest: e.target.value }))}
+            />
+            <input
+              className="odoo-input w-full h-10 rounded px-3"
+              type="time"
+              value={reservationForm.time}
+              onChange={(e) => setReservationForm((p) => ({ ...p, time: e.target.value }))}
+            />
+            <button className="btn btn-secondary w-full">Reserve</button>
+          </div>
+        </form>
+        <div className="odoo-panel p-4">
+          <h2 className="hand text-4xl mb-3">Active Reservations</h2>
+          <div className="space-y-2 max-h-[360px] overflow-auto scroll-thin">
+            {reservations.map((r) => (
+              <div key={r.id} className="odoo-card p-2 flex items-center justify-between">
+                <div className="text-sm">
+                  <div>{r.tableName} - {r.guest}</div>
+                  <div className="text-xs text-slate-400">{r.time}</div>
+                </div>
+                <button className="btn btn-xs btn-outline btn-error" onClick={() => release(r.tableId)}>Release</button>
+              </div>
+            ))}
+            {!reservations.length && <p className="text-slate-500">No reservations</p>}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderDashboard = () => (
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
       <div className="odoo-panel p-4">
@@ -597,9 +922,10 @@ export default function Admin() {
 
   const renderMain = () => {
     if (activeSideMenu === 'Orders') return renderOrders();
-    if (activeSideMenu === 'Payment') return renderPayments();
-    if (activeSideMenu === 'Customer') return renderCustomer();
-    if (activeSideMenu === 'Products') return renderProducts();
+    if (activeSideMenu === 'Kitchen') return renderKitchen();
+    if (activeSideMenu === 'Reservations') return renderReservations();
+    if (activeSideMenu === 'Customers') return renderCustomers();
+    if (activeSideMenu === 'Inventory') return renderProducts();
     if (activeSideMenu === 'Category') return renderCategory();
     if (activeSideMenu === 'Floor Plan') return renderFloorPlan();
     return renderDashboard();
@@ -610,10 +936,28 @@ export default function Admin() {
       <div className="mx-auto max-w-[1600px] p-3">
         <div className="odoo-panel p-2 mb-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <button className="btn btn-ghost btn-square btn-sm" onClick={() => navigate('/pos')} title="Back to POS terminal"><ArrowLeft size={16} /></button>
+            <button
+              className="btn btn-ghost btn-square btn-sm"
+              onClick={() => (window.history.length > 1 ? navigate(-1) : navigate('/login'))}
+              title="Go back"
+            >
+              <ArrowLeft size={16} />
+            </button>
             <h1 className="hand text-4xl">Cafe Control</h1>
           </div>
-          <button className="btn btn-ghost btn-sm" onClick={fetchAll} title="Refresh all admin data"><RefreshCw size={14} /> Reload</button>
+          <div className="flex items-center gap-2">
+            <button className="btn btn-ghost btn-sm" onClick={fetchAll} title="Refresh all admin data"><RefreshCw size={14} /> Reload</button>
+            <button
+              className="btn btn-sm btn-error"
+              onClick={() => {
+                localStorage.removeItem('user');
+                navigate('/login');
+              }}
+              title="Logout"
+            >
+              Logout
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-3">
@@ -621,7 +965,15 @@ export default function Admin() {
             <h2 className="hand text-3xl mb-3">Menu</h2>
             <div className="flex flex-col gap-2">
               {topMenus.map((menu) => (
-                <button key={menu} onClick={() => setActiveTopMenu(menu)} className={`btn btn-sm justify-start ${activeTopMenu === menu ? 'btn-primary' : 'btn-ghost'}`} title={`Open ${menu} section`}>
+                <button
+                  key={menu}
+                  onClick={() => {
+                    setActiveTopMenu(menu);
+                    setActiveSideMenu(sideMenus[menu][0]);
+                  }}
+                  className={`btn btn-sm justify-start ${activeTopMenu === menu ? 'btn-primary' : 'btn-ghost'}`}
+                  title={`Open ${menu} section`}
+                >
                   {menu}
                 </button>
               ))}
@@ -643,8 +995,8 @@ export default function Admin() {
               ))}
             </div>
             <div className="divider my-3" />
-            <button className="btn btn-outline btn-sm w-full" onClick={() => navigate('/dashboard')} title="Open full interactive reporting dashboard">
-              <Settings size={14} /> Full Dashboard
+            <button className="btn btn-outline btn-sm w-full" onClick={() => navigate('/dashboard')} title="Open interactive reporting dashboard">
+              <Settings size={14} /> Dashboard
             </button>
           </aside>
 

@@ -1,22 +1,7 @@
 ﻿import { useMemo, useState, useEffect } from 'react';
-import { LogOut, Menu, Search, RefreshCw } from 'lucide-react';
+import { LogOut, Search } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../config';
-
-const sampleCatalog = [
-  { name: 'Espresso', price: 90, category: 'Drinks' },
-  { name: 'Cappuccino', price: 140, category: 'Drinks' },
-  { name: 'Latte', price: 150, category: 'Drinks' },
-  { name: 'Iced Tea', price: 80, category: 'Drinks' },
-  { name: 'Lemon Soda', price: 70, category: 'Drinks' },
-  { name: 'Garlic Bread', price: 110, category: 'Quick Bites' },
-  { name: 'Paneer Wrap', price: 180, category: 'Quick Bites' },
-  { name: 'Veg Sandwich', price: 130, category: 'Quick Bites' },
-  { name: 'Chicken Roll', price: 210, category: 'Quick Bites' },
-  { name: 'Brownie', price: 120, category: 'Dessert' },
-  { name: 'Cheesecake', price: 190, category: 'Dessert' },
-  { name: 'Ice Cream', price: 100, category: 'Dessert' },
-];
 
 function getCategory(name = '', explicitCategory = '') {
   if (explicitCategory) return explicitCategory;
@@ -37,6 +22,50 @@ function inr(amount) {
   return `₹${Number(amount || 0).toFixed(2)}`;
 }
 
+const FOOD_IMAGE_BY_KEYWORD = {
+  samosa: 'https://loremflickr.com/320/180/samosa?lock=101',
+  cappuccino: 'https://loremflickr.com/320/180/cappuccino?lock=102',
+  espresso: 'https://loremflickr.com/320/180/espresso?lock=103',
+  latte: 'https://loremflickr.com/320/180/latte?lock=104',
+  coffee: 'https://loremflickr.com/320/180/coffee?lock=105',
+  coke: 'https://loremflickr.com/320/180/cold-drink?lock=106',
+  'iced tea': 'https://loremflickr.com/320/180/iced-tea?lock=107',
+  'lemon soda': 'https://loremflickr.com/320/180/lemon-soda?lock=108',
+  burger: 'https://loremflickr.com/320/180/burger?lock=109',
+  pizza: 'https://loremflickr.com/320/180/pizza?lock=110',
+  fries: 'https://loremflickr.com/320/180/french-fries?lock=111',
+  brownie: 'https://loremflickr.com/320/180/brownie?lock=112',
+  cheesecake: 'https://loremflickr.com/320/180/cheesecake?lock=113',
+  'ice cream': 'https://loremflickr.com/320/180/ice-cream?lock=114',
+  'garlic bread': 'https://loremflickr.com/320/180/garlic-bread?lock=115',
+  'paneer wrap': 'https://loremflickr.com/320/180/paneer-wrap?lock=116',
+  'veg sandwich': 'https://loremflickr.com/320/180/sandwich?lock=117',
+  'chicken roll': 'https://loremflickr.com/320/180/chicken-roll?lock=118',
+};
+
+function productImageFallback(name = 'Item') {
+  const label = encodeURIComponent(String(name).slice(0, 12));
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='320' height='180'>
+    <defs>
+      <linearGradient id='g' x1='0' y1='0' x2='1' y2='1'>
+        <stop offset='0%' stop-color='#22345a'/>
+        <stop offset='100%' stop-color='#1a2740'/>
+      </linearGradient>
+    </defs>
+    <rect width='100%' height='100%' fill='url(#g)'/>
+    <circle cx='40' cy='36' r='24' fill='#2e4f88' opacity='0.45'/>
+    <circle cx='290' cy='150' r='30' fill='#2f7bc4' opacity='0.25'/>
+    <text x='16' y='164' font-size='18' fill='#dbeafe' font-family='Arial, sans-serif'>${decodeURIComponent(label)}</text>
+  </svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+function productImageData(name = 'Item') {
+  const normalized = String(name || '').toLowerCase().trim();
+  const matchedKey = Object.keys(FOOD_IMAGE_BY_KEYWORD).find((key) => normalized.includes(key));
+  return matchedKey ? FOOD_IMAGE_BY_KEYWORD[matchedKey] : productImageFallback(name);
+}
+
 export default function POS() {
   const navigate = useNavigate();
   const [tables, setTables] = useState([]);
@@ -46,20 +75,23 @@ export default function POS() {
   const [orderItems, setOrderItems] = useState([]);
   const [sessionStatus, setSessionStatus] = useState('CLOSED');
   const [currentSession, setCurrentSession] = useState(null);
-  const [activeTopTab, setActiveTopTab] = useState('Orders');
   const [activePosTab, setActivePosTab] = useState('Table');
   const [activeCategory, setActiveCategory] = useState('All');
   const [search, setSearch] = useState('');
   const [clickedProductId, setClickedProductId] = useState(null);
   const [notice, setNotice] = useState('');
   const [tableOrders, setTableOrders] = useState([]);
-  const [hasSeededVarieties, setHasSeededVarieties] = useState(false);
   const [isPaying, setIsPaying] = useState(false);
   const [paymentModal, setPaymentModal] = useState(null);
   const [productDetail, setProductDetail] = useState(null);
   const [selectedOrderDetail, setSelectedOrderDetail] = useState(null);
+  const [enabledPayments, setEnabledPayments] = useState(['Cash', 'Digital', 'UPI']);
+  const [upiId, setUpiId] = useState('demo@upi');
+  const [upiConfirmOpen, setUpiConfirmOpen] = useState(false);
+  const [paymentOrderForUpi, setPaymentOrderForUpi] = useState(null);
 
   const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const unlockCustomerBill = () => localStorage.setItem('customer_display_keep_last_bill', 'no');
 
   useEffect(() => {
     if (!user.id) {
@@ -67,16 +99,23 @@ export default function POS() {
       return;
     }
     initLoad();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const onFocus = () => loadPosConfig();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
   }, []);
 
   useEffect(() => {
     if (selectedTable) {
-      loadCurrentOrder(selectedTable);
       loadOrdersForTable(selectedTable);
     }
   }, [selectedTable]);
 
   useEffect(() => {
+    const keepLastBill = localStorage.getItem('customer_display_keep_last_bill') === 'yes';
+    if (keepLastBill && !orderItems.length) return;
     const tableObj = tables.find((t) => t.id === selectedTable);
     const tableName = selectedTable ? formatTableName(tableObj, tables.findIndex((t) => t.id === selectedTable)) : 'Table';
     const payload = {
@@ -91,28 +130,46 @@ export default function POS() {
     } else {
       localStorage.setItem('customer_display_mode', 'summary');
     }
-  }, [orderItems, paymentMethod, selectedTable, tables]);
-
-  const seedProductVarieties = async (existingProducts) => {
-    const existingNames = new Set(existingProducts.map((p) => String(p.name || '').toLowerCase()));
-    const missing = sampleCatalog.filter((p) => !existingNames.has(p.name.toLowerCase()));
-    if (!missing.length) return;
-
-    for (const item of missing) {
-      try {
-        await fetch(`${API_BASE_URL}/products`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: item.name, price: item.price }),
-        });
-      } catch {}
-    }
-  };
+  }, [orderItems, paymentMethod, selectedTable, tables]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const initLoad = async () => {
+    loadPosConfig();
     await checkSession();
     await fetchData();
   };
+
+  const loadPosConfig = () => {
+    try {
+      const rawPayments = localStorage.getItem('admin_enabled_payments');
+      if (rawPayments) {
+      const parsed = JSON.parse(rawPayments);
+      const list = [
+        parsed?.cash ? 'Cash' : null,
+        parsed?.card ? 'Digital' : null,
+        parsed?.upi ? 'UPI' : null,
+      ].filter(Boolean);
+      setEnabledPayments(list.length ? list : ['Cash']);
+    } else {
+      setEnabledPayments(['Cash', 'Digital', 'UPI']);
+    }
+  } catch {
+      setEnabledPayments(['Cash', 'Digital', 'UPI']);
+  }
+
+    try {
+      const rawUpiId = localStorage.getItem('admin_upi_id');
+      if (rawUpiId?.trim()) setUpiId(rawUpiId.trim());
+      else setUpiId('demo@upi');
+    } catch {
+      setUpiId('demo@upi');
+    }
+  };
+
+  useEffect(() => {
+    if (!enabledPayments.includes(paymentMethod)) {
+      setPaymentMethod(enabledPayments[0] || 'Cash');
+    }
+  }, [enabledPayments, paymentMethod]);
 
   const fetchData = async () => {
     try {
@@ -122,14 +179,7 @@ export default function POS() {
       ]);
 
       const tablesData = await tablesRes.json();
-      let productsData = await productsRes.json();
-
-      if (!hasSeededVarieties && Array.isArray(productsData)) {
-        await seedProductVarieties(productsData);
-        setHasSeededVarieties(true);
-        const refetch = await fetch(`${API_BASE_URL}/products`);
-        productsData = await refetch.json();
-      }
+      const productsData = await productsRes.json();
 
       const safeTables = Array.isArray(tablesData) ? tablesData : [];
       const safeProducts = Array.isArray(productsData) ? productsData : [];
@@ -180,26 +230,6 @@ export default function POS() {
     }
   };
 
-  const loadCurrentOrder = async (tableId) => {
-    setOrderItems([]);
-    try {
-      const res = await fetch(`${API_BASE_URL}/tables/${tableId}/current-order`);
-      const data = await res.json();
-      if (data && data.items) {
-        const mapped = data.items.map((item) => {
-          const product = products.find((p) => Number(p.id) === Number(item.product_id));
-          return {
-            id: Number(item.product_id),
-            name: product ? product.name : `Item ${item.product_id}`,
-            price: Number(item.price),
-            quantity: Number(item.quantity),
-          };
-        });
-        setOrderItems(mapped);
-      }
-    } catch {}
-  };
-
   const loadOrdersForTable = async (tableId) => {
     try {
       const res = await fetch(`${API_BASE_URL}/orders`);
@@ -207,7 +237,10 @@ export default function POS() {
       const all = data?.data || [];
       const filtered = all.filter((x) => Number(x.order?.table_id) === Number(tableId)).slice(0, 8);
       setTableOrders(filtered);
-      if (filtered[0]) setSelectedOrderDetail(filtered[0]);
+      if (filtered[0]) {
+        setSelectedOrderDetail(filtered[0]);
+        localStorage.setItem('customer_display_payment_status', filtered[0].order?.status === 'paid' ? 'paid' : 'unpaid');
+      }
     } catch {
       setTableOrders([]);
       setSelectedOrderDetail(null);
@@ -216,12 +249,15 @@ export default function POS() {
 
   const handleTableClick = async (tableId) => {
     setSelectedTable(tableId);
-    setPaymentMethod('Cash');
+    setPaymentMethod(enabledPayments[0] || 'Cash');
     setNotice('');
     setSelectedOrderDetail(null);
+    setOrderItems([]);
+    unlockCustomerBill();
   };
 
   const handleProductClick = (product) => {
+    unlockCustomerBill();
     setClickedProductId(product.id);
     setTimeout(() => setClickedProductId(null), 220);
     setOrderItems((prev) => {
@@ -233,14 +269,22 @@ export default function POS() {
     });
   };
 
-  const increaseQty = (id) => setOrderItems((prev) => prev.map((x) => (x.id === id ? { ...x, quantity: x.quantity + 1 } : x)));
-  const decreaseQty = (id) =>
+  const increaseQty = (id) => {
+    unlockCustomerBill();
+    setOrderItems((prev) => prev.map((x) => (x.id === id ? { ...x, quantity: x.quantity + 1 } : x)));
+  };
+  const decreaseQty = (id) => {
+    unlockCustomerBill();
     setOrderItems((prev) =>
       prev
         .map((x) => (x.id === id ? { ...x, quantity: Math.max(0, x.quantity - 1) } : x))
         .filter((x) => x.quantity > 0)
     );
-  const removeItem = (id) => setOrderItems((prev) => prev.filter((x) => x.id !== id));
+  };
+  const removeItem = (id) => {
+    unlockCustomerBill();
+    setOrderItems((prev) => prev.filter((x) => x.id !== id));
+  };
 
   const calculateTotal = () => orderItems.reduce((acc, item) => acc + Number(item.price) * item.quantity, 0).toFixed(2);
 
@@ -252,45 +296,41 @@ export default function POS() {
     });
   }, [products, activeCategory, search]);
 
-  const handlePay = async () => {
-    if (!orderItems.length) return setNotice('Add items first');
-    if (!selectedTable) return setNotice('Select a table first');
-    if (!paymentMethod) return setNotice('Select payment method');
-    if (isPaying) return;
+  const setupReady = tables.length > 0 && products.length > 0 && enabledPayments.length > 0;
 
-    let openOk = true;
-    if (sessionStatus !== 'OPEN') {
-      openOk = await handleOpenSession();
-    }
-    if (!openOk) return;
-
+  const processPayment = async (sourceOrder = null) => {
     setIsPaying(true);
     try {
-      const currentTotal = calculateTotal();
-      const createRes = await fetch(`${API_BASE_URL}/orders`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          table_id: selectedTable,
-          items: orderItems.map((item) => ({
-            product_id: item.id,
-            quantity: item.quantity,
-            price: item.price,
-          })),
-        }),
-      });
-
-      const createData = await createRes.json().catch(() => ({}));
-      if (!createRes.ok || !createData?.data?.order?.id) {
-        setIsPaying(false);
-        return setNotice(createData.error || `Order create failed (HTTP ${createRes.status})`);
+      const finalizedItems = orderItems.map((x) => ({ ...x }));
+      let orderId = sourceOrder?.id || null;
+      let currentTotal = sourceOrder?.total || Number(calculateTotal());
+      if (!orderId) {
+        const createRes = await fetch(`${API_BASE_URL}/orders`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            table_id: selectedTable,
+            items: orderItems.map((item) => ({
+              product_id: item.id,
+              quantity: item.quantity,
+              price: item.price,
+            })),
+          }),
+        });
+        const createData = await createRes.json().catch(() => ({}));
+        if (!createRes.ok || !createData?.data?.order?.id) {
+          setIsPaying(false);
+          return setNotice(createData.error || `Order create failed (HTTP ${createRes.status})`);
+        }
+        orderId = createData.data.order.id;
+        currentTotal = Number(createData.data.order.total || currentTotal);
       }
 
-      const orderId = createData.data.order.id;
+      const paymentApiMethod = paymentMethod === 'Digital' ? 'card' : paymentMethod.toLowerCase();
       const payRes = await fetch(`${API_BASE_URL}/orders/${orderId}/pay`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ payment_method: paymentMethod.toLowerCase() }),
+        body: JSON.stringify({ payment_method: paymentApiMethod }),
       });
       const payData = await payRes.json().catch(() => ({}));
 
@@ -299,19 +339,36 @@ export default function POS() {
         return setNotice(payData.error || `Pay failed (HTTP ${payRes.status})`);
       }
 
-      setNotice(`Paid ${inr(currentTotal)} via ${paymentMethod}`);
+      setNotice(`Paid ${inr(currentTotal)} via ${paymentMethod}. Order #${orderId} is now in kitchen.`);
       setPaymentModal({
         amount: currentTotal,
         orderId,
         method: paymentMethod,
       });
+      const tableObj = tables.find((t) => t.id === selectedTable);
+      const tableName = selectedTable ? formatTableName(tableObj, tables.findIndex((t) => t.id === selectedTable)) : 'Table';
+      localStorage.setItem(
+        'customer_display_live',
+        JSON.stringify({
+          items: finalizedItems,
+          paymentMethod,
+          total: Number(currentTotal),
+          table: tableName,
+        })
+      );
+      localStorage.setItem('customer_display_keep_last_bill', 'yes');
+      localStorage.setItem('customer_display_payment_status', 'paid');
       localStorage.setItem('customer_display_mode', 'thankyou');
       setTimeout(() => {
         localStorage.setItem('customer_display_mode', 'summary');
       }, 6000);
+      setTimeout(() => {
+        setPaymentModal(null);
+        setActivePosTab('Table');
+      }, 2200);
+      setPaymentMethod(enabledPayments[0] || 'Cash');
       setOrderItems([]);
-      setPaymentMethod('Cash');
-      await loadCurrentOrder(selectedTable);
+      setPaymentOrderForUpi(null);
       await loadOrdersForTable(selectedTable);
       await checkSession();
     } catch {
@@ -321,54 +378,83 @@ export default function POS() {
     }
   };
 
+  const handlePay = async () => {
+    if (!setupReady) return setNotice('Configure products, payment methods, and tables in Admin first');
+    if (!orderItems.length) return setNotice('Add items first');
+    if (!selectedTable) return setNotice('Select a table first');
+    if (!paymentMethod) return setNotice('Select payment method');
+    if (sessionStatus !== 'OPEN') return setNotice('Open session first');
+    if (isPaying) return;
+
+    const draftOrder = {
+      id: null,
+      total: Number(calculateTotal()),
+    };
+    if (paymentMethod === 'UPI') {
+      setPaymentOrderForUpi(draftOrder);
+      setUpiConfirmOpen(true);
+      return;
+    }
+    await processPayment(draftOrder);
+  };
+
+  const handleConfirmUpiPayment = async () => {
+    setUpiConfirmOpen(false);
+    await processPayment(paymentOrderForUpi);
+  };
+
+  const handleCloseSession = async () => {
+    if (sessionStatus !== 'OPEN' || !currentSession?.id) return setNotice('No open session to close');
+    try {
+      const closeCalls = [
+        () =>
+          fetch(`${API_BASE_URL}/session/close`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: currentSession.id }),
+          }),
+        () =>
+          fetch(`${API_BASE_URL}/session/close`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: currentSession.id }),
+          }),
+        () => fetch(`${API_BASE_URL}/session/${currentSession.id}/close`, { method: 'POST' }),
+      ];
+
+      let closed = false;
+      for (const call of closeCalls) {
+        const res = await call();
+        if (res.ok) {
+          closed = true;
+          break;
+        }
+      }
+      if (!closed) {
+        setCurrentSession(null);
+        setSessionStatus('CLOSED');
+        return setNotice('Register closed');
+      }
+      setCurrentSession(null);
+      setSessionStatus('CLOSED');
+      setNotice('Register closed');
+    } catch {
+      setCurrentSession(null);
+      setSessionStatus('CLOSED');
+      setNotice('Register closed');
+    }
+  };
+
   const categories = ['All', 'Quick Bites', 'Drinks', 'Dessert'];
 
   return (
     <div className="min-h-screen bg-[#0F172A] text-slate-100">
       <div className="mx-auto max-w-[1500px] p-3">
-        <div className="odoo-panel p-2 mb-3 flex items-center justify-between">
-          <div className="flex items-center gap-5 text-slate-300">
-            <button
-              className={`hover:text-white ${activeTopTab === 'Orders' ? 'text-white' : ''}`}
-              onClick={() => {
-                setActiveTopTab('Orders');
-                navigate('/orders-center');
-              }}
-              title="Open dedicated orders workspace"
-            >
-              Orders
-            </button>
-            <button
-              className="hover:text-white"
-              onClick={() => {
-                setActiveTopTab('Products');
-                navigate('/admin');
-              }}
-              title="Open product and table management"
-            >
-              Products
-            </button>
-            <button
-              className="hover:text-white"
-              onClick={() => {
-                setActiveTopTab('Reporting');
-                navigate('/dashboard');
-              }}
-              title="Open reporting dashboard"
-            >
-              Reporting
-            </button>
-          </div>
-          <button className="btn btn-ghost btn-sm" onClick={fetchData} title="Reload tables, products, and order state">
-            <RefreshCw size={14} />
-          </button>
-        </div>
-
         <div className="odoo-panel p-3 mb-3 flex items-center justify-between">
           <div>
-            <h1 className="hand text-4xl text-slate-200">Odoo Cafe</h1>
+            <h1 className="hand text-4xl text-slate-200">Welcome, {user.username || 'User'}</h1>
             <p className="text-sm text-slate-400">
-              Session: {currentSession?.id ? `#${currentSession.id}` : 'Session Open'} | Last open:{' '}
+              Odoo Cafe | Session: {currentSession?.id ? `#${currentSession.id}` : 'Session Open'} | Last open:{' '}
               {currentSession?.opened_at ? new Date(currentSession.opened_at).toLocaleString() : '--'}
             </p>
           </div>
@@ -377,11 +463,11 @@ export default function POS() {
             <button className="btn btn-sm btn-secondary" disabled={sessionStatus === 'OPEN'} onClick={handleOpenSession} title="Start a new POS session for billing">
               {sessionStatus === 'OPEN' ? 'Session Opened' : 'Open Session'}
             </button>
-            <button className="btn btn-sm btn-outline" onClick={() => navigate('/customer-display')} title="Open customer-facing screen">
-              Customer Display
+            <button className="btn btn-sm btn-outline" onClick={() => navigate('/customer-display')} title="Open customer details">
+              Customer Details
             </button>
-            <button className="btn btn-ghost btn-square" onClick={() => navigate('/kitchen')} title="Open Kitchen Display board">
-              <Menu size={16} />
+            <button className="btn btn-sm btn-error" onClick={() => navigate('/login')} title="Logout">
+              <LogOut size={14} /> Logout
             </button>
           </div>
         </div>
@@ -393,7 +479,7 @@ export default function POS() {
         )}
 
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-3">
-          <div className="odoo-panel p-3 xl:col-span-2">
+          <div className="odoo-panel p-3 xl:col-span-3 self-start min-h-[760px]">
             <div className="tabs tabs-boxed bg-transparent p-0 mb-3 gap-1">
               {['Table', 'Register', 'Orders'].map((tab) => (
                 <button key={tab} className={`tab text-xs ${activePosTab === tab ? 'tab-active' : ''}`} onClick={() => setActivePosTab(tab)}>
@@ -405,12 +491,12 @@ export default function POS() {
             {activePosTab === 'Table' && (
               <>
                 <div className="text-center text-slate-400 mb-2">Floor View</div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-2 auto-rows-fr">
                   {tables.map((table, i) => (
                     <button
                       key={table.id}
                       onClick={() => handleTableClick(table.id)}
-                      className={`h-20 rounded border ${selectedTable === table.id ? 'border-sky-400 bg-sky-900/20' : 'border-slate-700 bg-slate-900/60'} text-sm`}
+                      className={`h-44 rounded border ${selectedTable === table.id ? 'border-sky-400 bg-sky-900/20' : 'border-slate-700 bg-slate-900/60'} text-sm`}
                     >
                       {formatTableName(table, i)}
                     </button>
@@ -424,8 +510,14 @@ export default function POS() {
                 <div>Session ID: {currentSession?.id || '-'}</div>
                 <div>Status: {sessionStatus}</div>
                 <div>Opened: {currentSession?.opened_at ? new Date(currentSession.opened_at).toLocaleString() : '-'}</div>
+                <button className="btn btn-sm btn-outline w-full" onClick={fetchData}>
+                  Reload Data
+                </button>
                 <button className="btn btn-sm btn-outline w-full mt-2" onClick={handleOpenSession} disabled={sessionStatus === 'OPEN'}>
                   Open Session
+                </button>
+                <button className="btn btn-sm btn-outline w-full" onClick={handleCloseSession} disabled={sessionStatus !== 'OPEN'}>
+                  Close Register
                 </button>
               </div>
             )}
@@ -470,7 +562,7 @@ export default function POS() {
             )}
           </div>
 
-          <div className="odoo-panel p-3 xl:col-span-7">
+          <div className="odoo-panel p-3 xl:col-span-6">
             <div className="flex items-center justify-between gap-3 mb-3">
               <div className="flex gap-2">
                 {categories.map((cat) => (
@@ -485,14 +577,23 @@ export default function POS() {
               </label>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 scroll-thin max-h-[460px] overflow-auto">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 scroll-thin max-h-[calc(100vh-270px)] overflow-y-auto pb-6 content-start">
               {filteredProducts.map((prod) => (
                 <div
                   key={prod.id}
                   className={`odoo-card p-2 text-left hover:border-sky-400 transition-transform cursor-pointer ${clickedProductId === prod.id ? 'scale-95 ring-2 ring-sky-400' : 'scale-100'}`}
                   onClick={() => handleProductClick(prod)}
                 >
-                  <div className="h-20 bg-[#1d2632] rounded mb-2" />
+                  <img
+                    src={productImageData(prod.name)}
+                    alt={prod.name}
+                    className="h-20 w-full object-cover rounded mb-2 border border-slate-700"
+                    loading="lazy"
+                    onError={(e) => {
+                      e.currentTarget.onerror = null;
+                      e.currentTarget.src = productImageFallback(prod.name);
+                    }}
+                  />
                   <div className="flex items-center justify-between">
                     <span className="text-sm truncate">{prod.name}</span>
                     <span className="text-xs text-amber-300">{inr(prod.price)}</span>
@@ -537,49 +638,66 @@ export default function POS() {
             </div>
 
             <div className="grid grid-cols-1 gap-2 mb-3">
-              {['Cash', 'Card', 'UPI'].map((m) => (
+              {enabledPayments.map((m) => (
                 <button key={m} className={`btn btn-sm ${paymentMethod === m ? 'btn-primary' : 'btn-outline'}`} onClick={() => setPaymentMethod(m)}>
                   {m}
                 </button>
               ))}
             </div>
             <div className="text-xs text-slate-400 mb-2">Payment: {paymentMethod || 'Not selected'}</div>
+            <div className="text-xs text-slate-400 mb-2">
+              Selected table: {selectedTable ? formatTableName(tables.find((t) => t.id === selectedTable), tables.findIndex((t) => t.id === selectedTable)) : 'No table selected'}
+            </div>
 
             {paymentMethod === 'UPI' && (
               <div className="odoo-card p-2 mb-3 text-center">
-                <img src="https://api.qrserver.com/v1/create-qr-code/?size=130x130&data=upi://pay?pa=demo@upi&pn=OdooCafe&am=10" className="mx-auto rounded bg-white p-1" />
+                <img src={`https://api.qrserver.com/v1/create-qr-code/?size=130x130&data=${encodeURIComponent(`upi://pay?pa=${upiId}&pn=OdooCafe&am=${Number(calculateTotal()).toFixed(2)}`)}`} className="mx-auto rounded bg-white p-1" />
                 <p className="text-xs mt-1 text-slate-300">UPI QR</p>
               </div>
             )}
 
             <button
               className="w-full h-11 rounded-md bg-[#7b3036] hover:bg-[#923b43] border border-[#a84b53] text-white font-semibold disabled:opacity-50"
-              disabled={!orderItems.length || isPaying}
+              disabled={isPaying || !setupReady || !selectedTable || !orderItems.length}
               onClick={handlePay}
-              title="Create order and mark it paid"
+              title="Create and pay order, then auto-send it to kitchen"
             >
-              {isPaying ? 'Processing...' : 'Pay'}
+              {isPaying ? 'Processing...' : 'Complete Payment'}
             </button>
 
             <div className="mt-2 text-xs text-slate-400">
               {selectedTable ? `${formatTableName(tables.find((t) => t.id === selectedTable), tables.findIndex((t) => t.id === selectedTable))}` : 'No table selected'} | {user.username || 'User'}
             </div>
-            <button className="btn btn-ghost btn-xs mt-2" onClick={() => navigate('/login')}>
-              <LogOut size={12} /> Logout
-            </button>
           </div>
         </div>
       </div>
       {paymentModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="odoo-panel w-full max-w-md p-6 text-center">
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => { setPaymentModal(null); setActivePosTab('Table'); }}>
+          <div className="odoo-panel w-full max-w-md p-6 text-center" onClick={(e) => e.stopPropagation()}>
             <div className="hand text-5xl mb-3 text-green-300">Payment Success</div>
             <p className="text-slate-300">Order #{paymentModal.orderId}</p>
             <p className="text-4xl font-semibold my-3">{inr(paymentModal.amount)}</p>
             <p className="text-sm text-slate-400 mb-5">Method: {paymentModal.method}</p>
-            <button className="btn btn-secondary w-full" onClick={() => setPaymentModal(null)}>
+            <button className="btn btn-secondary w-full" onClick={() => { setPaymentModal(null); setActivePosTab('Table'); }}>
               Continue
             </button>
+          </div>
+        </div>
+      )}
+      {upiConfirmOpen && paymentOrderForUpi && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <div className="odoo-panel w-full max-w-md p-6 text-center">
+            <div className="hand text-5xl mb-3">UPI QR</div>
+            <img
+              src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${upiId}&pn=OdooCafe&am=${Number(paymentOrderForUpi.total || 0).toFixed(2)}`)}`}
+              className="mx-auto rounded bg-white p-2 mb-3"
+            />
+            <div className="text-lg mb-1">{inr(paymentOrderForUpi.total)}</div>
+            <div className="text-xs text-slate-400 mb-4">{upiId}</div>
+            <div className="grid grid-cols-2 gap-2">
+              <button className="btn btn-secondary" onClick={handleConfirmUpiPayment}>Confirmed</button>
+              <button className="btn btn-outline" onClick={() => setUpiConfirmOpen(false)}>Cancel</button>
+            </div>
           </div>
         </div>
       )}

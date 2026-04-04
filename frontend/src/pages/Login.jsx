@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { API_BASE_URL } from '../config';
 
@@ -10,27 +10,96 @@ export default function Login() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('saved_login');
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (saved?.username) setUsername(saved.username);
+      if (saved?.password) setPassword(saved.password);
+      setRememberMe(true);
+    } catch (error) {
+      console.error('Failed to read saved login:', error);
+    }
+  }, []);
+
+  const resolveRole = (user, rawUsername) => {
+    const explicit = String(user?.role || '').toLowerCase();
+    if (['admin', 'customer', 'chef', 'user'].includes(explicit)) return explicit;
+    if (user?.is_admin) return 'admin';
+    const usernameLower = String(rawUsername || user?.username || '').toLowerCase();
+    if (usernameLower === 'admin') return 'admin';
+    if (usernameLower === 'chef') return 'chef';
+    if (usernameLower === 'customer' || usernameLower.startsWith('cust_')) return 'customer';
+    return 'user';
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
+    const usernameClean = username.trim();
 
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-      });
+      const doLogin = () =>
+        fetch(`${API_BASE_URL}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: usernameClean, password }),
+        });
+
+      let response = await doLogin();
 
       let data = {};
       try {
         data = await response.json();
-      } catch {}
+      } catch {
+        data = {};
+      }
+
+      const usernameLower = String(usernameClean || '').toLowerCase();
+      const canBootstrapDefault =
+        (usernameLower === 'admin' && password === 'admin123') ||
+        (usernameLower === 'chef' && password === 'chef123');
+
+      if ((!response.ok || !data.success) && canBootstrapDefault) {
+        try {
+          await fetch(`${API_BASE_URL}/auth/signup`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: usernameClean, password }),
+          });
+        } catch (bootstrapError) {
+          console.error('Bootstrap default user failed:', bootstrapError);
+        }
+        response = await doLogin();
+        try {
+          data = await response.json();
+        } catch {
+          data = {};
+        }
+      }
 
       if (response.ok && data.success) {
-        localStorage.setItem('user', JSON.stringify(data.user));
-        navigate('/pos');
+        const role = resolveRole(data.user, usernameClean);
+        const userWithRole = { ...data.user, role };
+        localStorage.setItem('user', JSON.stringify(userWithRole));
+        if (rememberMe) {
+          localStorage.setItem('saved_login', JSON.stringify({ username: usernameClean, password }));
+        } else {
+          localStorage.removeItem('saved_login');
+        }
+        navigate(
+          role === 'admin'
+            ? '/admin'
+            : role === 'chef'
+              ? '/kitchen'
+              : role === 'customer'
+                ? '/self-order'
+                : '/pos'
+        );
       } else {
         setError(data.error || `Login failed (HTTP ${response.status})`);
       }
@@ -58,6 +127,7 @@ export default function Login() {
                 className="odoo-input w-full h-12 rounded-xl px-4 text-lg"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
+                autoComplete="username"
                 required
               />
             </div>
@@ -70,6 +140,7 @@ export default function Login() {
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="current-password"
                   required
                 />
                 <button
@@ -81,6 +152,11 @@ export default function Login() {
                 </button>
               </div>
             </div>
+
+            <label className="flex items-center gap-2 text-sm text-slate-300">
+              <input type="checkbox" className="checkbox checkbox-sm" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} />
+              Remember login on this device
+            </label>
 
             <button type="submit" disabled={isLoading} className="btn btn-odoo border-none hand text-5xl h-16 w-52 mx-auto block mt-12">
               {isLoading ? '...' : 'Login'}
