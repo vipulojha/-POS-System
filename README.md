@@ -52,10 +52,3 @@ npm run dev
 Frontend expects backend API at:
 - `http://localhost:5001/api`
 
-## Security / Git Hygiene
-- Root `.gitignore` excludes:
-  - `.env` / `.env.*`
-  - `node_modules`
-  - `dist` / `build`
-  - logs
-- Do not commit secrets, credentials files, or local runtime data.
