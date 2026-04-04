@@ -1,0 +1,157 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Patrick+Hand&display=swap');
+
+@plugin "daisyui" {
+  themes: dark, light;
+}
+
+:root {
+  --bg-main: #0f172a;
+  --bg-panel: #1e293b;
+  --bg-soft: #273449;
+  --border-soft: #334155;
+  --text-main: #f8fafc;
+  --text-soft: #cbd5e1;
+  --accent-primary: #2563eb;
+  --accent-success: #22c55e;
+  --accent-warning: #f59e0b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Outfit', sans-serif;
+  background: radial-gradient(circle at top right, #18284a 0%, #111b33 45%, #0f172a 100%);
+  color: var(--text-main);
+  -webkit-font-smoothing: antialiased;
+}
+
+.hand {
+  font-family: 'Patrick Hand', cursive;
+}
+
+.odoo-panel {
+  background: linear-gradient(180deg, #1f2b42 0%, #1a2538 100%);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  box-shadow: 0 10px 26px rgba(2, 6, 23, 0.25);
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.odoo-card {
+  background: #1e293b;
+  border: 1px solid #364357;
+  border-radius: 8px;
+  box-shadow: 0 6px 16px rgba(2, 6, 23, 0.22);
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.odoo-card:hover {
+  transform: scale(1.015);
+  border-color: #4b5d78;
+  box-shadow: 0 14px 30px rgba(2, 6, 23, 0.35);
+}
+
+.odoo-input {
+  background: #111827;
+  border: 1px solid #334155;
+  color: #f8fafc;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.odoo-input:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.25);
+}
+
+.btn-odoo {
+  background: var(--accent-primary);
+  border: 1px solid #3b82f6;
+  color: #eff6ff;
+  transition: transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+.btn-odoo:hover {
+  background: #1d4ed8;
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(37, 99, 235, 0.25);
+}
+
+.btn {
+  transition: transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease, border-color 160ms ease;
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 16px rgba(2, 6, 23, 0.25);
+}
+
+.btn.btn-primary {
+  background-color: var(--accent-primary);
+  border-color: #3b82f6;
+  color: #eff6ff;
+}
+
+.btn.btn-primary:hover {
+  background-color: #1d4ed8;
+}
+
+.btn.btn-success {
+  background-color: var(--accent-success);
+  border-color: #22c55e;
+  color: #052e16;
+}
+
+.btn.btn-warning {
+  background-color: var(--accent-warning);
+  border-color: #f59e0b;
+  color: #451a03;
+}
+
+.table {
+  color: var(--text-main);
+}
+
+.table :where(thead, tfoot) {
+  color: #cbd5e1;
+}
+
+.table tbody tr {
+  border-bottom: 1px solid #2b364a;
+  transition: background-color 140ms ease;
+}
+
+.table tbody tr:hover {
+  background: #1b2537;
+}
+
+.navbar, .menu {
+  color: var(--text-main);
+}
+
+.alert {
+  background: #1a2f55;
+  border: 1px solid #2b4a82;
+  color: #dbeafe;
+}
+
+.status-pill {
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.scroll-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: #2f3f52;
+  border-radius: 10px;
+}

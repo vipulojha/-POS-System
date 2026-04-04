@@ -1,0 +1,16 @@
+{
+  "name": "pos-cafe-backend",
+  "version": "1.0.0",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "start:5001": "set PORT=5001&& node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.0",
+    "express": "^4.22.1",
+    "pg": "^8.20.0"
+  }
+}
