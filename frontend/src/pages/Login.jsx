@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { API_BASE_URL } from '../config';
 
@@ -10,20 +10,6 @@ export default function Login() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(true);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem('saved_login');
-      if (!raw) return;
-      const saved = JSON.parse(raw);
-      if (saved?.username) setUsername(saved.username);
-      if (saved?.password) setPassword(saved.password);
-      setRememberMe(true);
-    } catch (error) {
-      console.error('Failed to read saved login:', error);
-    }
-  }, []);
 
   const resolveRole = (user, rawUsername) => {
     const explicit = String(user?.role || '').toLowerCase();
@@ -86,11 +72,7 @@ export default function Login() {
         const role = resolveRole(data.user, usernameClean);
         const userWithRole = { ...data.user, role };
         localStorage.setItem('user', JSON.stringify(userWithRole));
-        if (rememberMe) {
-          localStorage.setItem('saved_login', JSON.stringify({ username: usernameClean, password }));
-        } else {
-          localStorage.removeItem('saved_login');
-        }
+        localStorage.removeItem('saved_login');
         navigate(
           role === 'admin'
             ? '/admin'
@@ -152,11 +134,6 @@ export default function Login() {
                 </button>
               </div>
             </div>
-
-            <label className="flex items-center gap-2 text-sm text-slate-300">
-              <input type="checkbox" className="checkbox checkbox-sm" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} />
-              Remember login on this device
-            </label>
 
             <button type="submit" disabled={isLoading} className="btn btn-odoo border-none hand text-5xl h-16 w-52 mx-auto block mt-12">
               {isLoading ? '...' : 'Login'}

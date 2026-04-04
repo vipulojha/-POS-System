@@ -261,18 +261,30 @@ export default function Dashboard() {
   }, [filteredOrders]);
 
   const trendSeries = useMemo(() => {
-    const dayMap = new Map();
+    const end = new Date();
+    const days = [];
+    for (let i = 7; i >= 0; i -= 1) {
+      const d = new Date(end);
+      d.setDate(end.getDate() - i);
+      days.push(new Date(d.getFullYear(), d.getMonth(), d.getDate()));
+    }
+
+    const dayMap = new Map(days.map((d) => [d.toISOString().slice(0, 10), 0]));
+
     filteredOrders.forEach((entry) => {
-      const d = entry.order?.created_at ? new Date(entry.order.created_at) : null;
-      if (!d) return;
-      const key = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+      const dt = entry.order?.created_at ? new Date(entry.order.created_at) : null;
+      if (!dt) return;
+      const key = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()).toISOString().slice(0, 10);
+      if (!dayMap.has(key)) return;
       dayMap.set(key, (dayMap.get(key) || 0) + Number(entry.order?.total || 0));
     });
-    const keys = Array.from(dayMap.keys()).sort((a, b) => new Date(a) - new Date(b)).slice(-8);
-    if (!keys.length) return Array.from({ length: 8 }).map((_, idx) => ({ label: String(idx + 1), value: 0 }));
-    return keys.map((k) => {
-      const [, m, d] = k.split('-');
-      return { label: `${d}/${m}`, value: dayMap.get(k) || 0 };
+
+    return days.map((d) => {
+      const key = d.toISOString().slice(0, 10);
+      return {
+        label: `${d.getDate()}/${d.getMonth() + 1}`,
+        value: dayMap.get(key) || 0,
+      };
     });
   }, [filteredOrders]);
 
@@ -413,6 +425,17 @@ export default function Dashboard() {
           <div className="odoo-panel p-4">
             <h2 className="hand text-4xl mb-2">Sales Trend</h2>
             <div className="relative h-44 p-2">
+              {(() => {
+                const maxValue = Math.max(...trendSeries.map((point) => Number(point.value || 0)), 1);
+                const points = trendSeries
+                  .map((point, i) => {
+                    const x = (i / Math.max(trendSeries.length - 1, 1)) * 100;
+                    const y = 100 - Math.max(10, Math.min(92, (Number(point.value || 0) / maxValue) * 80 + 10));
+                    return { x, y };
+                  });
+                const polylinePoints = points.map((p) => `${p.x},${p.y}`).join(' ');
+                const areaPath = `M${points[0]?.x || 0},100 ${points.map((p) => `L${p.x},${p.y}`).join(' ')} L${points[points.length - 1]?.x || 100},100 Z`;
+                return (
               <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
                 <defs>
                   <linearGradient id="salesArea" x1="0" y1="0" x2="0" y2="1">
@@ -420,29 +443,19 @@ export default function Dashboard() {
                     <stop offset="100%" stopColor="#60a5fa" stopOpacity="0.02" />
                   </linearGradient>
                 </defs>
-                <path
-                  d={`M0,100 ${trendSeries
-                    .map((point, i) => {
-                      const x = (i / Math.max(trendSeries.length - 1, 1)) * 100;
-                      const y = 100 - Math.max(8, Math.min(95, (point.value / Math.max(summary.total_revenue || 1, 1)) * 100));
-                      return `L${x},${y}`;
-                    })
-                    .join(' ')} L100,100 Z`}
-                  fill="url(#salesArea)"
-                />
+                <path d={areaPath} fill="url(#salesArea)" />
                 <polyline
                   fill="none"
                   stroke="#f59e0b"
-                  strokeWidth="1.8"
-                  points={trendSeries
-                    .map((point, i) => {
-                      const x = (i / Math.max(trendSeries.length - 1, 1)) * 100;
-                      const y = 100 - Math.max(8, Math.min(95, (point.value / Math.max(summary.total_revenue || 1, 1)) * 100));
-                      return `${x},${y}`;
-                    })
-                    .join(' ')}
+                  strokeWidth="2"
+                  points={polylinePoints}
                 />
+                {points.map((p, idx) => (
+                  <circle key={idx} cx={p.x} cy={p.y} r="1.1" fill="#f59e0b" />
+                ))}
               </svg>
+                );
+              })()}
               <div className="absolute inset-x-2 bottom-1 grid grid-cols-8 text-[10px] text-slate-500">
                 {trendSeries.map((point, i) => (
                   <span key={i} className="text-center">{point.label}</span>

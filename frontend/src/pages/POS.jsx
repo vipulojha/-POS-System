@@ -519,6 +519,9 @@ export default function POS() {
                 <button className="btn btn-sm btn-outline w-full" onClick={handleCloseSession} disabled={sessionStatus !== 'OPEN'}>
                   Close Register
                 </button>
+                <p className="text-[11px] text-slate-400">
+                  Close Register ends the current billing session and prevents new payments until the next Open Session.
+                </p>
               </div>
             )}
 

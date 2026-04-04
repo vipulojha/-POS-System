@@ -3,6 +3,17 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Search, Filter } from 'lucide-react';
 import { API_BASE_URL } from '../config';
 
+function kitchenCategory(product = {}) {
+  const explicit = String(product?.category || '').toLowerCase();
+  if (explicit.includes('drink') || explicit.includes('beverage')) return 'Beverage';
+  if (explicit.includes('dessert')) return 'Dessert';
+
+  const name = String(product?.name || '').toLowerCase();
+  if (name.includes('tea') || name.includes('coffee') || name.includes('coke') || name.includes('latte') || name.includes('soda')) return 'Beverage';
+  if (name.includes('cake') || name.includes('dessert') || name.includes('ice') || name.includes('brownie')) return 'Dessert';
+  return 'Quick Bites';
+}
+
 export default function Kitchen() {
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem('user') || '{}');
@@ -46,14 +57,7 @@ export default function Kitchen() {
     };
   }, []);
 
-  const allProducts = useMemo(() => {
-    const s = new Set();
-    orders.forEach((o) => (o.items || []).forEach((i) => {
-      const p = products.find((x) => Number(x.id) === Number(i.product_id));
-      s.add(p?.name || `Product ${i.product_id}`);
-    }));
-    return ['All', ...Array.from(s)];
-  }, [orders, products]);
+  const allFilters = ['All', 'Quick Bites', 'Beverage', 'Dessert'];
 
   const stageOf = (status) => {
     if (status === 'completed') return 'Completed';
@@ -72,7 +76,7 @@ export default function Kitchen() {
       const searchOk = !search || idMatch || itemMatch;
       const productOk = productFilter === 'All' || (o.items || []).some((i) => {
         const p = products.find((x) => Number(x.id) === Number(i.product_id));
-        return (p?.name || `Product ${i.product_id}`) === productFilter;
+        return kitchenCategory(p) === productFilter;
       });
       return searchOk && productOk;
     });
@@ -128,7 +132,7 @@ export default function Kitchen() {
           <aside className="lg:col-span-2 odoo-card p-3">
             <div className="flex items-center gap-2 mb-2 text-slate-300"><Filter size={14} /> Filter</div>
             <div className="space-y-1">
-              {allProducts.map((p) => (
+              {allFilters.map((p) => (
                 <button key={p} className={`btn btn-sm w-full justify-start ${productFilter === p ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setProductFilter(p)}>{p}</button>
               ))}
             </div>
