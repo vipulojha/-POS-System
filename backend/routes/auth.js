@@ -18,7 +18,14 @@ router.post("/signup", async (req, res) => {
 
 router.post("/login", async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const username = String(body.username || body.email || "").trim();
+    const password = String(body.password || "");
+
+    if (!username || !password) {
+      return res.status(400).json({ success: false, error: "Username/email and password are required" });
+    }
+
     const result = await pool.query(
       "SELECT id, username FROM users WHERE username = $1 AND password = $2",
       [username, password]
@@ -30,6 +37,7 @@ router.post("/login", async (req, res) => {
 
     res.json({ success: true, user: result.rows[0] });
   } catch (error) {
+    console.error("Login error:", error.message);
     res.status(500).json({ success: false, error: "Login failed" });
   }
 });
