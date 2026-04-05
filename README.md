@@ -50,5 +50,5 @@ npm run dev
 ```
 
 Frontend expects backend API at:
-- http://127.0.0.1:5181/
+-`http://localhost:5001/api`
 
